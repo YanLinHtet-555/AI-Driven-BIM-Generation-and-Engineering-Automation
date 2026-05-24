@@ -1,0 +1,28 @@
+import type { GenerationResponse } from '../types/api'
+
+const BASE = '/api/v1'
+
+export async function generateBuilding(prompt: string): Promise<GenerationResponse> {
+  const res = await fetch(`${BASE}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Request failed' }))
+    throw new Error(err.detail ?? `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+export function ifcDownloadUrl(modelId: string): string {
+  return `${BASE}/models/${modelId}/ifc`
+}
+
+export function qtoDownloadUrl(modelId: string): string {
+  return `${BASE}/models/${modelId}/qto`
+}
+
+export function floorplanUrl(modelId: string, floor = 0): string {
+  return `${BASE}/models/${modelId}/floorplan?floor=${floor}`
+}
