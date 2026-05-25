@@ -11,6 +11,7 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024 // 20 MB
 interface Props {
   onSubmit: (prompt: string, file?: File) => void
   loading: boolean
+  error?: string | null
 }
 
 function FilePreview({ file, onRemove }: { file: File; onRemove: () => void }) {
@@ -44,7 +45,7 @@ function FilePreview({ file, onRemove }: { file: File; onRemove: () => void }) {
   )
 }
 
-export default function GeneratorForm({ onSubmit, loading }: Props) {
+export default function GeneratorForm({ onSubmit, loading, error }: Props) {
   const [prompt, setPrompt]   = useState('')
   const [file,   setFile]     = useState<File | null>(null)
   const [fileErr, setFileErr] = useState<string | null>(null)
@@ -148,7 +149,21 @@ export default function GeneratorForm({ onSubmit, loading }: Props) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span>Claude will analyse your sketch and extract rooms, dimensions and building type automatically.</span>
+            <span>AI will analyse your sketch and extract rooms, dimensions and building type automatically.</span>
+          </div>
+        )}
+
+        {/* Inline error — shown directly in the form so it's impossible to miss */}
+        {error && (
+          <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700">
+            <svg className="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <p className="font-medium">Generation failed</p>
+              <p className="mt-0.5 text-red-600">{error}</p>
+            </div>
           </div>
         )}
 

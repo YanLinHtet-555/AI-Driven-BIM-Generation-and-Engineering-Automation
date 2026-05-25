@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import os
 from typing import Optional
 
 import ollama
-from anthropic import AsyncAnthropic
 
 from ..models.schemas import (
     BuildingRequirements, RoomRequirement, OccupancyType, RoomType, StructureType,
@@ -49,21 +49,21 @@ SYSTEM_PROMPT = (
 )
 
 VISION_PROMPT = (
-    "You are an expert architectural analyst. Carefully study the attached sketch or drawing.\n"
-    "Identify every room/space visible, approximate dimensions, number of floors, building type, "
-    "structural hints, and any labels or annotations.\n"
-    "Then return ONLY a valid JSON object — no explanation, no markdown.\n\n"
+    "You are an expert architectural analyst. Study the attached sketch or drawing carefully.\n"
+    "Identify every room/space, approximate dimensions, number of floors, building type, "
+    "structural hints, and any labels or annotations visible.\n"
+    "Return ONLY a valid JSON object — no explanation, no markdown.\n\n"
     "The JSON must follow this exact schema:\n" + _JSON_SCHEMA + "\n\n"
     "Rules:\n"
     "- Map each labeled space to the nearest valid room type\n"
-    "- If dimensions are shown, use them; otherwise estimate from typical practice\n"
-    "- If floors > 1, include at least one staircase\n"
+    "- If dimensions are shown use them; otherwise estimate from typical practice\n"
+    "- If floors > 1 include at least one staircase\n"
     "- Always include at least one bathroom\n"
-    "- Capture anything unusual (e.g. rooftop terrace, basement) in special_requirements"
+    "- Capture anything unusual in special_requirements"
 )
 
 
-# ── Shared JSON parser ────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _default_rooms(building_type: str) -> list:
     if building_type == "residential":
@@ -121,7 +121,7 @@ def _parse(data: dict) -> BuildingRequirements:
     )
 
 
-def _extract_json(text: str) -> dict:
+def _safe_json(text: str) -> dict:
     try:
         start = text.find("{")
         end   = text.rfind("}") + 1
@@ -130,6 +130,17 @@ def _extract_json(text: str) -> dict:
     except (json.JSONDecodeError, ValueError):
         pass
     return {}
+
+
+def _extract_pdf_text(file_bytes: bytes) -> str:
+    """Extract plain text from a PDF using pdfplumber."""
+    try:
+        import pdfplumber
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            pages = [page.extract_text() or "" for page in pdf.pages]
+        return "\n".join(p for p in pages if p.strip())
+    except Exception:
+        return ""
 
 
 # ── Text extraction (Ollama) ──────────────────────────────────────────────────
@@ -152,7 +163,7 @@ async def extract_requirements(prompt: str) -> BuildingRequirements:
     return _parse(data)
 
 
-# ── Vision / PDF extraction (Claude) ─────────────────────────────────────────
+# ── Vision / PDF extraction (Ollama) ─────────────────────────────────────────
 
 async def extract_requirements_from_file(
     file_bytes: bytes,
@@ -160,42 +171,58 @@ async def extract_requirements_from_file(
     extra_prompt: str = "",
 ) -> BuildingRequirements:
     ct = (content_type or "").lower()
-    b64 = base64.standard_b64encode(file_bytes).decode()
-
-    if "pdf" in ct:
-        file_block: dict = {
-            "type": "document",
-            "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
-        }
-    else:
-        if "png" in ct:
-            mime = "image/png"
-        elif "gif" in ct:
-            mime = "image/gif"
-        elif "webp" in ct:
-            mime = "image/webp"
-        else:
-            mime = "image/jpeg"
-        file_block = {
-            "type": "image",
-            "source": {"type": "base64", "media_type": mime, "data": b64},
-        }
+    client = ollama.AsyncClient(host=OLLAMA_HOST)
 
     user_text = VISION_PROMPT
     if extra_prompt.strip():
         user_text += f"\n\nAdditional context from the user: {extra_prompt.strip()}"
 
-    client = AsyncAnthropic()
-    response = await client.messages.create(
-        model="claude-opus-4-7",
-        max_tokens=2048,
-        messages=[
-            {
-                "role": "user",
-                "content": [file_block, {"type": "text", "text": user_text}],
-            }
-        ],
-    )
+    if "pdf" in ct:
+        # ── PDF: extract text, send as plain prompt ───────────────────────
+        pdf_text = _extract_pdf_text(file_bytes)
+        if pdf_text.strip():
+            content = (
+                user_text
+                + f"\n\nThe following text was extracted from the PDF drawing:\n\n{pdf_text[:8000]}"
+            )
+        else:
+            # Scanned / image-only PDF — no text layer found
+            content = (
+                user_text
+                + "\n\n(Note: no text could be extracted from this PDF — "
+                "it appears to be a scanned drawing. "
+                "Please estimate reasonable values based on common building types.)"
+            )
+        response = await client.chat(
+            model=OLLAMA_MODEL,
+            format="json",
+            messages=[{"role": "user", "content": content}],
+            options={"temperature": 0.1},
+        )
 
-    raw = response.content[0].text if response.content else ""
-    return _parse(_extract_json(raw))
+    else:
+        # ── Image: pass as base64 via Ollama vision API ───────────────────
+        b64 = base64.standard_b64encode(file_bytes).decode()
+        try:
+            response = await client.chat(
+                model=OLLAMA_MODEL,
+                format="json",
+                messages=[{
+                    "role": "user",
+                    "content": user_text,
+                    "images": [b64],
+                }],
+                options={"temperature": 0.1},
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"Model '{OLLAMA_MODEL}' does not support image input. "
+                "Install a vision model and set OLLAMA_MODEL — e.g. "
+                "'ollama pull llama3.2-vision' then set OLLAMA_MODEL=llama3.2-vision in backend/.env"
+            ) from exc
+
+    try:
+        data = json.loads(response.message.content)
+    except (json.JSONDecodeError, KeyError):
+        data = {}
+    return _parse(data)

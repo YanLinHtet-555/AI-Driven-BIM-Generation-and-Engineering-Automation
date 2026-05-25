@@ -30,7 +30,10 @@ async def generate_building(
 
     if file is not None:
         file_bytes = await file.read()
-        requirements = await extract_requirements_from_file(file_bytes, file.content_type, prompt)
+        try:
+            requirements = await extract_requirements_from_file(file_bytes, file.content_type, prompt)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
     else:
         requirements = await extract_requirements(prompt)
 

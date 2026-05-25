@@ -158,7 +158,7 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left column: form */}
           <div className="lg:col-span-1">
-            <GeneratorForm onSubmit={handleGenerate} loading={loading} />
+            <GeneratorForm onSubmit={handleGenerate} loading={loading} error={error} />
           </div>
 
           {/* Right columns: view panel */}
