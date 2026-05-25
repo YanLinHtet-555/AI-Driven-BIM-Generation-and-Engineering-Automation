@@ -1,9 +1,9 @@
+from dotenv import load_dotenv
+load_dotenv(override=True)  # Must run before any other local imports read os.getenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 from .api.routes.generation import router as generation_router
-
-load_dotenv()
 
 app = FastAPI(
     title="AI-Driven BIM Generation API",

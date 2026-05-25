@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import base64
 import io
 import json
 import os
@@ -195,24 +194,29 @@ async def extract_requirements_from_file(
         # Pass 1: Ask the vision model to describe the sketch in natural language.
         #         This is a simpler task than producing structured JSON directly
         #         from an image, and gives much more accurate results.
-        b64 = base64.standard_b64encode(file_bytes).decode()
         client = ollama.AsyncClient(host=OLLAMA_HOST)
         try:
+            # Pass raw bytes — more compatible across Ollama versions than base64 strings
             desc_response = await client.chat(
                 model=OLLAMA_VISION_MODEL,
                 messages=[{
                     "role": "user",
                     "content": VISION_DESCRIBE_PROMPT,
-                    "images": [b64],
+                    "images": [file_bytes],
                 }],
                 options={"temperature": 0.1},
             )
             description = desc_response.message.content.strip()
         except Exception as exc:
+            err = str(exc)
+            print(f"[vision] raw error from Ollama: {err}", flush=True)
+            if "memory" in err.lower():
+                raise RuntimeError(
+                    f"Not enough RAM for vision model '{OLLAMA_VISION_MODEL}' ({err}). "
+                    "Try OLLAMA_VISION_MODEL=llava:7b or OLLAMA_VISION_MODEL=moondream"
+                ) from exc
             raise RuntimeError(
-                f"Model '{OLLAMA_VISION_MODEL}' does not support image input. "
-                "Install a vision model and set OLLAMA_VISION_MODEL in backend/.env — e.g. "
-                "'ollama pull llama3.2-vision' then set OLLAMA_VISION_MODEL=llama3.2-vision"
+                f"Vision model '{OLLAMA_VISION_MODEL}' failed: {err}"
             ) from exc
 
         if not description:

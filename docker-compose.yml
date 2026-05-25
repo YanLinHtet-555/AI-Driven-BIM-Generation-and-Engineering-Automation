@@ -28,8 +28,8 @@ services:
       # Point to the Ollama container, not localhost
       - OLLAMA_HOST=http://ollama:11434
       # Override these here or in backend/.env
-      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:70b}
-      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:8b}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-llama3.2-vision}
     env_file:
       - ./backend/.env          # OLLAMA_HOST here is overridden by environment above
     depends_on:

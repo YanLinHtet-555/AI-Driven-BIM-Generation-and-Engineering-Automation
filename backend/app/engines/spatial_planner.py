@@ -1,6 +1,6 @@
 import math
 import uuid
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from ..models.schemas import (
     BuildingRequirements, BuildingModel, OccupancyType, RoomType,
     Room, Wall, Door, Window, Column, Point2D
@@ -76,6 +76,17 @@ def _make_door(wall: Wall, floor: int, offset: float = 0.5) -> Door:
     )
 
 
+def _internal_door(wall: Wall, floor: int, frac: float = 0.5) -> Optional[Door]:
+    """Create a door at the fractional midpoint of a wall, but only if the wall
+    is long enough to accommodate one (>= 1.2 m)."""
+    dx = wall.end.x - wall.start.x
+    dy = wall.end.y - wall.start.y
+    length = math.hypot(dx, dy)
+    if length < 1.2:
+        return None
+    return _make_door(wall, floor, length * frac)
+
+
 def _make_window(wall: Wall, floor: int, t: float = 0.5) -> Window:
     dx = wall.end.x - wall.start.x
     dy = wall.end.y - wall.start.y
@@ -134,27 +145,26 @@ def _column_grid(bw: float, bd: float, ox: float, oy: float) -> List[Column]:
 def _plan_residential_ground(
     bw: float, bd: float, ox: float, oy: float,
     rooms_req, floor: int
-) -> Tuple[List[Room], List[Wall]]:
+) -> Tuple[List[Room], List[Wall], List[Door]]:
     rooms: List[Room] = []
     internal_walls: List[Wall] = []
+    doors: List[Door] = []
 
-    entry_d = 2.0
-    entry_w = bw
-    rooms.append(_make_room(RoomType.LOBBY, "Entry", floor, ox, oy, entry_w, entry_d))
-
-    living_h = bd * 0.35
+    # Living / Dining band across the front (no separate entry room)
+    living_h = bd * 0.42
     living_w = bw * 0.55
-    rooms.append(_make_room(RoomType.LIVING, "Living Room", floor, ox, oy + entry_d, living_w, living_h))
+    rooms.append(_make_room(RoomType.LIVING, "Living Room", floor, ox, oy, living_w, living_h))
 
     dining_w = bw - living_w
-    rooms.append(_make_room(RoomType.DINING, "Dining Room", floor, ox + living_w, oy + entry_d, dining_w, living_h))
+    rooms.append(_make_room(RoomType.DINING, "Dining Room", floor, ox + living_w, oy, dining_w, living_h))
 
-    kitchen_y = oy + entry_d + living_h
-    kitchen_h = bd - entry_d - living_h
-    kitchen_w = bw * 0.4
+    # Service band at the back
+    kitchen_y = oy + living_h
+    kitchen_h = bd - living_h
+    kitchen_w = bw * 0.38
     rooms.append(_make_room(RoomType.KITCHEN, "Kitchen", floor, ox, kitchen_y, kitchen_w, kitchen_h))
 
-    bath_w = bw * 0.2
+    bath_w = bw * 0.22
     rooms.append(_make_room(RoomType.BATHROOM, "Bathroom", floor, ox + kitchen_w, kitchen_y, bath_w, kitchen_h))
 
     stair_w = bw - kitchen_w - bath_w
@@ -162,28 +172,36 @@ def _plan_residential_ground(
     rooms.append(_make_room(RoomType.STAIRCASE, "Staircase", floor, stair_x, kitchen_y, stair_w, kitchen_h))
 
     # Internal dividing walls
-    internal_walls.append(_make_wall(
-        (ox + living_w, oy + entry_d), (ox + living_w, oy + entry_d + living_h), floor
-    ))
-    internal_walls.append(_make_wall(
-        (ox, oy + entry_d + living_h), (ox + bw, oy + entry_d + living_h), floor
-    ))
-    internal_walls.append(_make_wall(
+    wall_living_dining = _make_wall(
+        (ox + living_w, oy), (ox + living_w, oy + living_h), floor
+    )
+    wall_front_back = _make_wall(
+        (ox, oy + living_h), (ox + bw, oy + living_h), floor
+    )
+    wall_kitchen_bath = _make_wall(
         (ox + kitchen_w, kitchen_y), (ox + kitchen_w, oy + bd), floor
-    ))
-    internal_walls.append(_make_wall(
+    )
+    wall_bath_stair = _make_wall(
         (ox + kitchen_w + bath_w, kitchen_y), (ox + kitchen_w + bath_w, oy + bd), floor
-    ))
+    )
+    internal_walls.extend([wall_living_dining, wall_front_back, wall_kitchen_bath, wall_bath_stair])
 
-    return rooms, internal_walls
+    # Internal doors — one per dividing wall (skipped if wall is too short)
+    for wall in internal_walls:
+        door = _internal_door(wall, floor, 0.5)
+        if door is not None:
+            doors.append(door)
+
+    return rooms, internal_walls, doors
 
 
 def _plan_residential_upper(
     bw: float, bd: float, ox: float, oy: float,
     floor: int, bedroom_count: int
-) -> Tuple[List[Room], List[Wall]]:
+) -> Tuple[List[Room], List[Wall], List[Door]]:
     rooms: List[Room] = []
     internal_walls: List[Wall] = []
+    doors: List[Door] = []
 
     corridor_y = oy + bd / 2 - CORRIDOR_WIDTH / 2
     rooms.append(_make_room(RoomType.CORRIDOR, "Corridor", floor, ox, corridor_y, bw, CORRIDOR_WIDTH))
@@ -205,9 +223,14 @@ def _plan_residential_upper(
         x = ox + stair_w + i * bed_w_front
         rooms.append(_make_room(RoomType.BEDROOM, f"Bedroom {i + 1}", floor,
                                  x, oy, bed_w_front, front_depth))
-        internal_walls.append(_make_wall(
+        # Vertical bedroom-separating wall
+        bed_sep_wall = _make_wall(
             (x, oy), (x, oy + front_depth), floor
-        ))
+        )
+        internal_walls.append(bed_sep_wall)
+        door = _internal_door(bed_sep_wall, floor, 0.5)
+        if door is not None:
+            doors.append(door)
 
     # Bedrooms on back side of corridor
     back_depth = bd / 2 - CORRIDOR_WIDTH / 2
@@ -220,26 +243,38 @@ def _plan_residential_upper(
             x = ox + i * bed_w_back
             rooms.append(_make_room(RoomType.BEDROOM, f"Bedroom {bed_front_count + i + 1}", floor,
                                      x, back_y, bed_w_back, back_depth))
-            internal_walls.append(_make_wall(
+            bed_sep_wall = _make_wall(
                 (x, back_y), (x, back_y + back_depth), floor
-            ))
+            )
+            internal_walls.append(bed_sep_wall)
+            door = _internal_door(bed_sep_wall, floor, 0.5)
+            if door is not None:
+                doors.append(door)
 
     # Corridor walls
-    internal_walls.append(_make_wall(
+    corridor_wall_top = _make_wall(
         (ox, corridor_y), (ox + bw, corridor_y), floor
-    ))
-    internal_walls.append(_make_wall(
+    )
+    corridor_wall_bottom = _make_wall(
         (ox, corridor_y + CORRIDOR_WIDTH), (ox + bw, corridor_y + CORRIDOR_WIDTH), floor
-    ))
+    )
+    internal_walls.extend([corridor_wall_top, corridor_wall_bottom])
 
-    return rooms, internal_walls
+    # Door on each corridor wall at its centre
+    for cw in (corridor_wall_top, corridor_wall_bottom):
+        door = _internal_door(cw, floor, 0.5)
+        if door is not None:
+            doors.append(door)
+
+    return rooms, internal_walls, doors
 
 
 def _plan_office_ground(
     bw: float, bd: float, ox: float, oy: float, floor: int
-) -> Tuple[List[Room], List[Wall]]:
+) -> Tuple[List[Room], List[Wall], List[Door]]:
     rooms: List[Room] = []
     internal_walls: List[Wall] = []
+    doors: List[Door] = []
 
     lobby_d = bd * 0.25
     rooms.append(_make_room(RoomType.LOBBY, "Main Lobby", floor, ox, oy, bw, lobby_d))
@@ -255,20 +290,32 @@ def _plan_office_ground(
                              ox + left_w, office_y + office_h * 0.5,
                              bw - left_w, office_h * 0.5))
 
-    internal_walls.append(_make_wall((ox, oy + lobby_d), (ox + bw, oy + lobby_d), floor))
-    internal_walls.append(_make_wall((ox + left_w, office_y), (ox + left_w, oy + bd), floor))
-    internal_walls.append(_make_wall(
+    # Dividing walls
+    wall_lobby_office = _make_wall((ox, oy + lobby_d), (ox + bw, oy + lobby_d), floor)
+    wall_office_right = _make_wall((ox + left_w, office_y), (ox + left_w, oy + bd), floor)
+    wall_meeting_bath = _make_wall(
         (ox + left_w, office_y + office_h * 0.5), (ox + bw, office_y + office_h * 0.5), floor
-    ))
+    )
+    internal_walls.extend([wall_lobby_office, wall_office_right, wall_meeting_bath])
 
-    return rooms, internal_walls
+    # Internal doors — lobby to office, office to meeting room
+    door_lobby_office = _internal_door(wall_lobby_office, floor, 0.5)
+    if door_lobby_office is not None:
+        doors.append(door_lobby_office)
+
+    door_office_meeting = _internal_door(wall_office_right, floor, 0.5)
+    if door_office_meeting is not None:
+        doors.append(door_office_meeting)
+
+    return rooms, internal_walls, doors
 
 
 def _plan_office_upper(
     bw: float, bd: float, ox: float, oy: float, floor: int
-) -> Tuple[List[Room], List[Wall]]:
+) -> Tuple[List[Room], List[Wall], List[Door]]:
     rooms: List[Room] = []
     internal_walls: List[Wall] = []
+    doors: List[Door] = []
 
     stair_w = 3.0
     rooms.append(_make_room(RoomType.STAIRCASE, "Staircase", floor, ox, oy, stair_w, bd))
@@ -288,19 +335,31 @@ def _plan_office_upper(
                              content_x + content_w * 0.6, oy + office_h,
                              content_w * 0.4, bd - office_h))
 
-    internal_walls.append(_make_wall((ox + stair_w, oy), (ox + stair_w, oy + bd), floor))
-    internal_walls.append(_make_wall((ox + stair_w + corridor_w, oy), (ox + stair_w + corridor_w, oy + bd), floor))
-    internal_walls.append(_make_wall((content_x, oy + office_h), (content_x + content_w, oy + office_h), floor))
-    internal_walls.append(_make_wall(
+    # Dividing walls
+    wall_stair_corridor = _make_wall((ox + stair_w, oy), (ox + stair_w, oy + bd), floor)
+    wall_corridor_office = _make_wall((ox + stair_w + corridor_w, oy), (ox + stair_w + corridor_w, oy + bd), floor)
+    wall_office_lower = _make_wall((content_x, oy + office_h), (content_x + content_w, oy + office_h), floor)
+    wall_meeting_bath = _make_wall(
         (content_x + content_w * 0.6, oy + office_h), (content_x + content_w * 0.6, oy + bd), floor
-    ))
+    )
+    internal_walls.extend([wall_stair_corridor, wall_corridor_office, wall_office_lower, wall_meeting_bath])
 
-    return rooms, internal_walls
+    # Internal doors — stair to corridor, corridor to office
+    door_stair_corridor = _internal_door(wall_stair_corridor, floor, 0.5)
+    if door_stair_corridor is not None:
+        doors.append(door_stair_corridor)
+
+    door_corridor_office = _internal_door(wall_corridor_office, floor, 0.5)
+    if door_corridor_office is not None:
+        doors.append(door_corridor_office)
+
+    return rooms, internal_walls, doors
 
 
 def generate_building_model(requirements: BuildingRequirements) -> BuildingModel:
     bw = requirements.site_width - SETBACK_SIDE * 2
     bd = requirements.site_depth - SETBACK_FRONT - SETBACK_BACK
+
     ox = SETBACK_SIDE
     oy = SETBACK_FRONT
 
@@ -329,17 +388,18 @@ def generate_building_model(requirements: BuildingRequirements) -> BuildingModel
         # Internal layout
         if requirements.building_type == OccupancyType.OFFICE:
             if floor == 0:
-                rooms, iw = _plan_office_ground(bw, bd, ox, oy, floor)
+                rooms, iw, floor_doors = _plan_office_ground(bw, bd, ox, oy, floor)
             else:
-                rooms, iw = _plan_office_upper(bw, bd, ox, oy, floor)
+                rooms, iw, floor_doors = _plan_office_upper(bw, bd, ox, oy, floor)
         else:
             if floor == 0:
-                rooms, iw = _plan_residential_ground(bw, bd, ox, oy, requirements.rooms, floor)
+                rooms, iw, floor_doors = _plan_residential_ground(bw, bd, ox, oy, requirements.rooms, floor)
             else:
-                rooms, iw = _plan_residential_upper(bw, bd, ox, oy, floor, bedroom_count)
+                rooms, iw, floor_doors = _plan_residential_upper(bw, bd, ox, oy, floor, bedroom_count)
 
         all_rooms.extend(rooms)
         all_walls.extend(iw)
+        all_doors.extend(floor_doors)
 
     # Structural columns (ground floor only)
     columns = _column_grid(bw, bd, ox, oy)

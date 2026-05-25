@@ -11,8 +11,8 @@ type LayerId = 'rooms' | 'walls' | 'openings' | 'structure' | 'slabs' | 'hvac' |
 
 const LAYERS: { id: LayerId; label: string; color: string }[] = [
   { id: 'slabs',       label: 'Slabs',       color: '#90a4ae' },
-  { id: 'rooms',       label: 'Rooms',       color: '#4caf50' },
-  { id: 'walls',       label: 'Walls',       color: '#455a64' },
+  { id: 'rooms',       label: 'Rooms',       color: '#8fbc8f' },
+  { id: 'walls',       label: 'Walls',       color: '#8a8078' },
   { id: 'openings',    label: 'Openings',    color: '#ff8f00' },
   { id: 'structure',   label: 'Structure',   color: '#78909c' },
   { id: 'hvac',        label: 'HVAC',        color: '#00838f' },
@@ -21,11 +21,11 @@ const LAYERS: { id: LayerId; label: string; color: string }[] = [
 ]
 
 const ROOM_COLOR: Record<string, string> = {
-  living: '#a5d6a7',    dining: '#c8e6c9',    kitchen: '#fff176',
-  bedroom: '#90caf9',   bathroom: '#80cbc4',  toilet: '#80cbc4',
-  office: '#ce93d8',    lobby: '#ffcc80',     corridor: '#eeeeee',
-  staircase: '#b0bec5', storage: '#bcaaa4',   meeting_room: '#9fa8da',
-  parking: '#cfd8dc',
+  living:       '#f0e8d8',  dining:   '#ece4d0',  kitchen: '#f0e0b4',
+  bedroom:      '#d4e2f4',  bathroom: '#c8daea',  toilet:  '#d4cce4',
+  office:       '#d8e8d4',  lobby:    '#ece4cc',  corridor:'#e4e0dc',
+  staircase:    '#d8d4e0',  storage:  '#dcd8d4',  meeting_room:'#e8d4d8',
+  parking:      '#d4dcd4',
 }
 
 // ── Geometry helper ────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ function Roof3D({ siteW, siteD, baseY, cfg }: {
   )
   return (
     <mesh geometry={geo}>
-      <meshStandardMaterial color="#78909c" side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#b8a898" roughness={0.82} metalness={0} side={THREE.DoubleSide} />
     </mesh>
   )
 }
@@ -211,16 +211,22 @@ function BuildingScene({
 
   return (
     <>
+      <color attach="background" args={['#c8e4f2']} />
+
       {/* Lighting */}
       <ambientLight intensity={0.55} />
-      <directionalLight position={[15, 25, 15]} intensity={0.9} castShadow />
-      <hemisphereLight args={['#e3f2fd', '#eceff1', 0.35]} />
+      <directionalLight position={[20, 30, 20]} intensity={1.15} castShadow
+        shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-bias={-0.001} />
+      <directionalLight position={[-10, 18, -8]} intensity={0.3} color="#cce4ff" />
+      <hemisphereLight args={['#d8ecfc', '#c0b8a8', 0.45]} />
 
-      {/* Ground grid */}
-      <gridHelper
-        args={[Math.max(req.site_width, req.site_depth) * 2 + 10, 40, '#555', '#444']}
-        position={[req.site_width / 2, -0.02, req.site_depth / 2]}
-      />
+      {/* Ground plane */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[req.site_width / 2, -0.02, req.site_depth / 2]} receiveShadow>
+        <planeGeometry args={[200, 200]} />
+        <meshStandardMaterial color="#c4c0b8" roughness={0.95} />
+      </mesh>
+      {/* Subtle grid */}
+      <gridHelper args={[200, 100, '#a8a49c', '#b4b0a8']} position={[req.site_width / 2, 0, req.site_depth / 2]} />
 
       {/* ── Slabs ──────────────────────────────────────────────────────── */}
       {layers.has('slabs') && m.slabs?.filter(s => floorFilter < 0 || s.is_roof || ok(s.floor)).map(s => {
@@ -231,7 +237,7 @@ function BuildingScene({
         return (
           <mesh key={s.id} position={[x + w/2, yPos + s.thickness/2, z + d/2]}>
             <boxGeometry args={[w, s.thickness, d]} />
-            <meshStandardMaterial color={s.is_roof ? '#78909c' : '#b0bec5'} />
+            <meshStandardMaterial color={s.is_roof ? '#b8b4ae' : '#c8c4be'} roughness={0.92} metalness={0} />
           </mesh>
         )
       })}
@@ -245,10 +251,11 @@ function BuildingScene({
         return (
           <mesh key={r.id} position={[x + w/2, r.floor * fh + fh/2, z + d/2]}
             onClick={e => { e.stopPropagation(); onToggleHide(r.id) }}>
-            <boxGeometry args={[w, fh * 0.96, d]} />
+            <boxGeometry args={[w, fh * 0.98, d]} />
             <meshStandardMaterial
               color={ROOM_COLOR[r.type] ?? '#e0e0e0'}
-              transparent opacity={hidden ? 0.06 : 0.28}
+              transparent opacity={hidden ? 0.06 : 0.35}
+              roughness={0.8}
               depthWrite={false}
             />
           </mesh>
@@ -265,9 +272,13 @@ function BuildingScene({
         const hidden = hiddenIds.has(w.id)
         return (
           <mesh key={w.id} position={g.pos} rotation={[0, g.ry, 0]}
+            castShadow={w.is_external} receiveShadow
             onClick={e => { e.stopPropagation(); onToggleHide(w.id) }}>
             <boxGeometry args={g.args} />
-            <meshStandardMaterial color={w.is_external ? '#37474f' : '#90a4ae'}
+            <meshStandardMaterial
+              color={w.is_external ? '#c8c2b8' : '#d8d4cc'}
+              roughness={0.88}
+              metalness={0}
               transparent={hidden} opacity={hidden ? 0.06 : 1} />
           </mesh>
         )
@@ -275,9 +286,9 @@ function BuildingScene({
 
       {/* ── Columns ───────────────────────────────────────────────────── */}
       {layers.has('structure') && m.columns?.map(col => (
-        <mesh key={col.id} position={[col.position.x, totalH / 2, col.position.y]}>
+        <mesh key={col.id} position={[col.position.x, totalH / 2, col.position.y]} castShadow>
           <boxGeometry args={[col.width, totalH, col.depth]} />
-          <meshStandardMaterial color="#546e7a" />
+          <meshStandardMaterial color="#6a6660" roughness={0.35} metalness={0.6} />
         </mesh>
       ))}
 
@@ -291,7 +302,7 @@ function BuildingScene({
         return (
           <mesh key={b.id} position={g.pos} rotation={[0, g.ry, 0]}>
             <boxGeometry args={g.args} />
-            <meshStandardMaterial color="#546e7a" />
+            <meshStandardMaterial color="#7a7570" roughness={0.4} metalness={0.55} />
           </mesh>
         )
       })}
@@ -306,7 +317,7 @@ function BuildingScene({
         return (
           <mesh key={d.id} position={g.pos} rotation={[0, g.ry, 0]}>
             <boxGeometry args={g.args} />
-            <meshStandardMaterial color="#00838f" transparent opacity={0.75} />
+            <meshStandardMaterial color="#00838f" transparent opacity={0.7} />
           </mesh>
         )
       })}
@@ -363,7 +374,12 @@ function BuildingScene({
             rotation={[0, ry, 0]}
             onClick={e => { e.stopPropagation(); onToggleHide(d.id) }}>
             <boxGeometry args={[d.width, d.height, wall?.thickness ?? 0.2]} />
-            <meshStandardMaterial color="#bf360c" transparent opacity={hidden ? 0.06 : 0.85} />
+            <meshStandardMaterial
+              color="#8b6535"
+              roughness={0.75}
+              metalness={0}
+              transparent={hidden}
+              opacity={hidden ? 0.06 : 1} />
           </mesh>
         )
       })}
@@ -381,7 +397,12 @@ function BuildingScene({
             rotation={[0, ry, 0]}
             onClick={e => { e.stopPropagation(); onToggleHide(w.id) }}>
             <boxGeometry args={[w.width, w.height, wall?.thickness ?? 0.2]} />
-            <meshStandardMaterial color="#81d4fa" transparent opacity={hidden ? 0.06 : 0.55}
+            <meshStandardMaterial
+              color="#a8c8e0"
+              roughness={0.05}
+              metalness={0.15}
+              transparent
+              opacity={hidden ? 0.06 : 0.42}
               depthWrite={false} />
           </mesh>
         )
@@ -467,10 +488,10 @@ export default function ThreeDViewer({ result, roofConfig }: Props) {
       </div>
 
       {/* Canvas */}
-      <div className="rounded-xl overflow-hidden bg-slate-800" style={{ height: 520 }}>
+      <div className="rounded-xl overflow-hidden bg-[#c8e4f2]" style={{ height: 520 }}>
         <Canvas
           camera={{ fov: 50, position: [camX, camY, camZ], near: 0.1, far: 500 }}
-          gl={{ antialias: true }}
+          gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.1 }}
           shadows
         >
           <Suspense fallback={null}>
