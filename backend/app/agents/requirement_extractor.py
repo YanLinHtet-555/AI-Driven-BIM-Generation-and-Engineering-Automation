@@ -48,18 +48,19 @@ SYSTEM_PROMPT = (
     "- Always include at least one bathroom"
 )
 
-VISION_PROMPT = (
-    "You are an expert architectural analyst. Study the attached sketch or drawing carefully.\n"
-    "Identify every room/space, approximate dimensions, number of floors, building type, "
-    "structural hints, and any labels or annotations visible.\n"
-    "Return ONLY a valid JSON object — no explanation, no markdown.\n\n"
-    "The JSON must follow this exact schema:\n" + _JSON_SCHEMA + "\n\n"
-    "Rules:\n"
-    "- Map each labeled space to the nearest valid room type\n"
-    "- If dimensions are shown use them; otherwise estimate from typical practice\n"
-    "- If floors > 1 include at least one staircase\n"
-    "- Always include at least one bathroom\n"
-    "- Capture anything unusual in special_requirements"
+# Used in pass-1 of vision: ask the model to describe the sketch in plain text
+VISION_DESCRIBE_PROMPT = (
+    "You are an expert architectural analyst. Study the attached architectural sketch or floor plan drawing carefully.\n\n"
+    "Describe in detail everything you can see:\n"
+    "- Every room and space with its label/name and approximate dimensions or relative size\n"
+    "- The overall layout and arrangement of rooms on each floor\n"
+    "- Number of floors or storeys shown\n"
+    "- Overall building footprint dimensions if indicated\n"
+    "- Building type (house, apartment, office, shop, etc.)\n"
+    "- Any structural elements visible (columns, load-bearing walls, stairs, elevators)\n"
+    "- All text labels, annotations, dimension strings, or notes in the drawing\n"
+    "- Any special features (balcony, garage, basement, courtyard, etc.)\n\n"
+    "Write a thorough paragraph description. Do NOT output JSON — just describe what you see."
 )
 
 
@@ -171,49 +172,40 @@ async def extract_requirements_from_file(
     extra_prompt: str = "",
 ) -> BuildingRequirements:
     ct = (content_type or "").lower()
-    client = ollama.AsyncClient(host=OLLAMA_HOST)
-
-    user_text = VISION_PROMPT
-    if extra_prompt.strip():
-        user_text += f"\n\nAdditional context from the user: {extra_prompt.strip()}"
 
     if "pdf" in ct:
-        # ── PDF: extract text, send as plain prompt ───────────────────────
+        # ── PDF: extract text layer, then run through normal text pipeline ───
         pdf_text = _extract_pdf_text(file_bytes)
         if pdf_text.strip():
-            content = (
-                user_text
-                + f"\n\nThe following text was extracted from the PDF drawing:\n\n{pdf_text[:8000]}"
-            )
+            description = f"This is architectural information extracted from a PDF drawing:\n\n{pdf_text[:8000]}"
         else:
-            # Scanned / image-only PDF — no text layer found
-            content = (
-                user_text
-                + "\n\n(Note: no text could be extracted from this PDF — "
-                "it appears to be a scanned drawing. "
-                "Please estimate reasonable values based on common building types.)"
+            description = (
+                "A scanned PDF architectural drawing was uploaded but no text could be extracted. "
+                "Please generate a reasonable residential building with 2 floors, 3 bedrooms, "
+                "2 bathrooms, living room, kitchen, and dining room on a 15x20m site."
             )
-        response = await client.chat(
-            model=OLLAMA_MODEL,
-            format="json",
-            messages=[{"role": "user", "content": content}],
-            options={"temperature": 0.1},
-        )
+        if extra_prompt.strip():
+            description += f"\n\nAdditional context from the user: {extra_prompt.strip()}"
+        return await extract_requirements(description)
 
     else:
-        # ── Image: pass as base64 via Ollama vision API ───────────────────
+        # ── Image: two-pass pipeline ──────────────────────────────────────────
+        # Pass 1: Ask the vision model to describe the sketch in natural language.
+        #         This is a simpler task than producing structured JSON directly
+        #         from an image, and gives much more accurate results.
         b64 = base64.standard_b64encode(file_bytes).decode()
+        client = ollama.AsyncClient(host=OLLAMA_HOST)
         try:
-            response = await client.chat(
+            desc_response = await client.chat(
                 model=OLLAMA_MODEL,
-                format="json",
                 messages=[{
                     "role": "user",
-                    "content": user_text,
+                    "content": VISION_DESCRIBE_PROMPT,
                     "images": [b64],
                 }],
                 options={"temperature": 0.1},
             )
+            description = desc_response.message.content.strip()
         except Exception as exc:
             raise RuntimeError(
                 f"Model '{OLLAMA_MODEL}' does not support image input. "
@@ -221,8 +213,11 @@ async def extract_requirements_from_file(
                 "'ollama pull llama3.2-vision' then set OLLAMA_MODEL=llama3.2-vision in backend/.env"
             ) from exc
 
-    try:
-        data = json.loads(response.message.content)
-    except (json.JSONDecodeError, KeyError):
-        data = {}
-    return _parse(data)
+        if not description:
+            description = "An architectural sketch was uploaded but could not be described."
+
+        # Pass 2: Feed the plain-text description into the normal extraction pipeline.
+        combined = f"Architectural description based on a sketch:\n\n{description}"
+        if extra_prompt.strip():
+            combined += f"\n\nAdditional context from the user: {extra_prompt.strip()}"
+        return await extract_requirements(combined)
