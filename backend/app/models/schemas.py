@@ -246,6 +246,23 @@ class CostEstimate(BaseModel):
     currency: str = "USD"
 
 
+class BeamEdit(BaseModel):
+    id: str
+    start_x: float
+    start_y: float
+    end_x: float
+    end_y: float
+    floor: int
+    width: float = 0.3
+    depth: float = 0.5
+    grid_ref: str = ""
+
+
+class SteelOverride(BaseModel):
+    ref_id: str        # beam or column id
+    designation: str   # e.g. "W310x60"
+
+
 # ── Building Model ───────────────────────────────────────────────────────────
 
 class BuildingModel(BaseModel):
@@ -269,6 +286,7 @@ class BuildingModel(BaseModel):
     quantity_takeoff: Optional[QuantityTakeoff] = None
     steel_members: List[SteelMember] = []
     cost_estimate: Optional[CostEstimate] = None
+    steel_overrides: List[SteelOverride] = []
     floor_height: float = 3.2
 
 
@@ -323,6 +341,8 @@ class ModelEditRequest(BaseModel):
     structural_spacings_x: Optional[List[float]] = None
     structural_spacings_y: Optional[List[float]] = None
     floor_height: Optional[float] = None
+    beams: Optional[List[BeamEdit]] = None
+    steel_overrides: Optional[List[SteelOverride]] = None
 
 
 class GenerationRequest(BaseModel):

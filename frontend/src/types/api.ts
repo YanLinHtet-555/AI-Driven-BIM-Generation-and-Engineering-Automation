@@ -27,6 +27,21 @@ export interface Column {
 export interface Beam {
   id: string; start: Point2D; end: Point2D; floor: number
   width: number; depth: number
+  grid_ref?: string
+}
+
+export interface BeamEdit {
+  id: string
+  start_x: number; start_y: number
+  end_x: number; end_y: number
+  floor: number
+  width: number; depth: number
+  grid_ref: string
+}
+
+export interface SteelOverride {
+  ref_id: string
+  designation: string
 }
 
 export interface Slab {
@@ -131,6 +146,7 @@ export interface BuildingModel {
   quantity_takeoff: QuantityTakeoff | null
   steel_members: SteelMember[]
   cost_estimate: CostEstimate | null
+  steel_overrides: SteelOverride[]
 }
 
 export interface RoomEdit {
@@ -166,6 +182,8 @@ export interface ModelEditRequest {
   structural_spacings_x?: number[]
   structural_spacings_y?: number[]
   floor_height?: number
+  beams?: BeamEdit[]
+  steel_overrides?: SteelOverride[]
 }
 
 export interface GenerationResponse {

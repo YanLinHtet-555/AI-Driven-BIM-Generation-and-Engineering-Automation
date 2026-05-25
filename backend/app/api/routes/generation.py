@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from ...models.schemas import (
     GenerationRequest, GenerationResponse, ModelEditRequest,
-    Room, RoomType, Wall, Door, Window, Point2D, Column,
+    Room, RoomType, Wall, Door, Window, Point2D, Column, Beam, SteelOverride,
 )
 from ...agents.requirement_extractor import extract_requirements
 from ...engines.spatial_planner import generate_building_model, SETBACK_SIDE, SETBACK_FRONT
@@ -124,6 +124,25 @@ async def update_model(model_id: str, edit: ModelEditRequest) -> GenerationRespo
                 floor=edit.floor,
             ))
         model.windows = other_windows + new_windows
+
+    if edit.beams is not None:
+        other_beams = [b for b in model.beams if b.floor != edit.floor]
+        new_beams = []
+        for be in edit.beams:
+            bid = be.id if not be.id.startswith("new-") else str(_uuid.uuid4())
+            new_beams.append(Beam(
+                id=bid,
+                start=Point2D(x=be.start_x, y=be.start_y),
+                end=Point2D(x=be.end_x,   y=be.end_y),
+                floor=be.floor,
+                width=be.width,
+                depth=be.depth,
+                grid_ref=be.grid_ref,
+            ))
+        model.beams = other_beams + new_beams
+
+    if edit.steel_overrides is not None:
+        model.steel_overrides = edit.steel_overrides
 
     regen_structural = (
         edit.structural_spacings_x is not None or

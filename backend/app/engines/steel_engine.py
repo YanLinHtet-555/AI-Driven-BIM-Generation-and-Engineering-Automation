@@ -73,6 +73,7 @@ def _status(util: float) -> str:
 
 
 def generate_steel_members(model: BuildingModel) -> BuildingModel:
+    override_map: dict[str, str] = {o.ref_id: o.designation for o in model.steel_overrides}
     members: List[SteelMember] = []
 
     # ── Beams ─────────────────────────────────────────────────────────────────
@@ -80,19 +81,25 @@ def generate_steel_members(model: BuildingModel) -> BuildingModel:
         span = math.hypot(beam.end.x - beam.start.x, beam.end.y - beam.start.y)
         if span < 0.5:
             continue
-        w_kNm = _W_TOTAL * _TRIB          # uniform load kN/m
-        demand = w_kNm * span ** 2 / 8    # kN·m
+        w_kNm  = _W_TOTAL * _TRIB
+        demand = w_kNm * span ** 2 / 8
 
-        selected: Optional[_WBeam] = None
-        for s in _BEAM_DB:
-            if _phi_Mp_kNm(s.Zx) >= demand:
-                selected = s
-                break
-        if selected is None:
-            selected = _BEAM_DB[-1]
+        if beam.id in override_map:
+            desig    = override_map[beam.id]
+            selected: Optional[_WBeam] = next((s for s in _BEAM_DB if s.desig == desig), None)
+            if selected is None:
+                selected = _BEAM_DB[-1]
+        else:
+            selected = None
+            for s in _BEAM_DB:
+                if _phi_Mp_kNm(s.Zx) >= demand:
+                    selected = s
+                    break
+            if selected is None:
+                selected = _BEAM_DB[-1]
 
         capacity = _phi_Mp_kNm(selected.Zx)
-        util = demand / capacity if capacity > 0 else 9.99
+        util     = demand / capacity if capacity > 0 else 9.99
         members.append(SteelMember(
             id=str(uuid.uuid4()),
             ref_id=beam.id,
@@ -114,27 +121,33 @@ def generate_steel_members(model: BuildingModel) -> BuildingModel:
 
     # ── Columns ───────────────────────────────────────────────────────────────
     floors = model.requirements.floors
-    sg = model.structural_grid
+    sg     = model.structural_grid
     if sg and sg.spacings_x and sg.spacings_y:
         avg_bay_x = sum(sg.spacings_x) / len(sg.spacings_x)
         avg_bay_y = sum(sg.spacings_y) / len(sg.spacings_y)
         trib_area = avg_bay_x * avg_bay_y
     else:
-        trib_area = 36.0  # default 6×6 m
+        trib_area = 36.0
 
     for col in model.columns:
-        demand = _COL_LOAD * trib_area * floors  # kN
+        demand = _COL_LOAD * trib_area * floors
 
-        selected_c: Optional[_WCol] = None
-        for s in _COL_DB:
-            if _phi_Pn_kN(s.area) >= demand:
-                selected_c = s
-                break
-        if selected_c is None:
-            selected_c = _COL_DB[-1]
+        if col.id in override_map:
+            desig       = override_map[col.id]
+            selected_c: Optional[_WCol] = next((s for s in _COL_DB if s.desig == desig), None)
+            if selected_c is None:
+                selected_c = _COL_DB[-1]
+        else:
+            selected_c = None
+            for s in _COL_DB:
+                if _phi_Pn_kN(s.area) >= demand:
+                    selected_c = s
+                    break
+            if selected_c is None:
+                selected_c = _COL_DB[-1]
 
         capacity = _phi_Pn_kN(selected_c.area)
-        util = demand / capacity if capacity > 0 else 9.99
+        util     = demand / capacity if capacity > 0 else 9.99
         members.append(SteelMember(
             id=str(uuid.uuid4()),
             ref_id=col.id,
