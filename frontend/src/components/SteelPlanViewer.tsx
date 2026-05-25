@@ -147,6 +147,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
     beamId: string; endpoint: 'start' | 'end'; currentX: number; currentY: number
   } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [snapPreview, setSnapPreview] = useState<{ x: number; y: number } | null>(null)
 
   // Convert screen mouse pos → building coordinates
   const toBuilding = useCallback((e: { clientX: number; clientY: number }) => {
@@ -159,6 +160,14 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
     }
   }, [siteW, siteD, scale, H])
 
+  // Snap a building coordinate to the nearest grid intersection
+  const snapToGrid = useCallback((x: number, y: number) => {
+    if (!gridXs.length || !gridYs.length) return { x, y }
+    const nx = gridXs.reduce((a, b) => Math.abs(b - x) < Math.abs(a - x) ? b : a)
+    const ny = gridYs.reduce((a, b) => Math.abs(b - y) < Math.abs(a - y) ? b : a)
+    return { x: nx, y: ny }
+  }, [gridXs, gridYs])
+
   // ── SVG event handlers ─────────────────────────────────────────
   const handleSVGMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
     if (addMode) return
@@ -169,8 +178,10 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
 
   const handleSVGMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (endpointDrag) {
-      const { x, y } = toBuilding(e)
+      const raw = toBuilding(e)
+      const { x, y } = snapToGrid(raw.x, raw.y)
       setEndpointDrag(prev => prev ? { ...prev, currentX: x, currentY: y } : null)
+      setSnapPreview({ x, y })
       return
     }
     if (drag.current.on) {
@@ -179,7 +190,14 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
       if (Math.abs(dx) > 2 || Math.abs(dy) > 2) didPan.current = true
       if (didPan.current) setPan({ x: drag.current.px + dx, y: drag.current.py + dy })
     }
-    if (addMode && addStart) setGhostEnd(toBuilding(e))
+    if (addMode) {
+      const raw = toBuilding(e)
+      const snapped = snapToGrid(raw.x, raw.y)
+      setSnapPreview(snapped)
+      if (addStart) setGhostEnd(snapped)
+    } else {
+      setSnapPreview(null)
+    }
   }
 
   const handleSVGMouseUp = (_e: React.MouseEvent<SVGSVGElement>) => {
@@ -196,13 +214,14 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
 
   const handleSVGClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (didPan.current) return
-    const { x, y } = toBuilding(e)
+    const raw = toBuilding(e)
+    const { x, y } = snapToGrid(raw.x, raw.y)
     if (addMode) {
       if (!addStart) {
         setAddStart({ x, y })
       } else {
         commitAddBeam(addStart, { x, y })
-        setAddStart(null); setGhostEnd(null)
+        setAddStart(null); setGhostEnd(null); setSnapPreview(null)
       }
       return
     }
@@ -312,7 +331,9 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
     const sx2 = parseFloat(posInput.sx); const sy2 = parseFloat(posInput.sy)
     const ex2 = parseFloat(posInput.ex); const ey2 = parseFloat(posInput.ey)
     if ([sx2, sy2, ex2, ey2].some(isNaN)) return
-    commitBeamPositionEdit(selectedBeam.id, sx2, sy2, ex2, ey2)
+    const s = snapToGrid(sx2, sy2)
+    const end = snapToGrid(ex2, ey2)
+    commitBeamPositionEdit(selectedBeam.id, s.x, s.y, end.x, end.y)
   }
 
   // ── Summary ─────────────────────────────────────────────────────
@@ -383,7 +404,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
           ))}
           {/* Mode buttons */}
           <div className="flex gap-1 ml-2">
-            <button onClick={() => { setAddMode(false); setAddStart(null); setGhostEnd(null) }}
+            <button onClick={() => { setAddMode(false); setAddStart(null); setGhostEnd(null); setSnapPreview(null) }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
                 !addMode ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 bg-white border border-slate-200'
               }`}>
@@ -443,7 +464,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
             onMouseDown={handleSVGMouseDown}
             onMouseMove={handleSVGMouseMove}
             onMouseUp={handleSVGMouseUp}
-            onMouseLeave={handleSVGMouseUp}
+            onMouseLeave={e => { handleSVGMouseUp(e); setSnapPreview(null) }}
             onClick={handleSVGClick}
           >
             <g transform={`translate(${pan.x},${pan.y}) scale(${zoom})`}>
@@ -528,6 +549,24 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
               {/* Site outline */}
               <rect x={sx(0)} y={sy(siteD)} width={siteW*scale} height={siteD*scale}
                 fill="none" stroke="#cbd5e1" strokeWidth={1} strokeDasharray="5 3" rx={2}/>
+
+              {/* Grid intersection dots — shown in add mode and during endpoint drag */}
+              {(addMode || endpointDrag) && gridXs.map(gx =>
+                gridYs.map(gy => (
+                  <circle key={`gi-${gx}-${gy}`}
+                    cx={sx(gx)} cy={sy(gy)} r={3/zoom}
+                    fill="#10b981" opacity={0.45}
+                    style={{ pointerEvents: 'none' }} />
+                ))
+              )}
+
+              {/* Snap preview ring — nearest grid node under cursor */}
+              {(addMode || endpointDrag) && snapPreview && (
+                <circle
+                  cx={sx(snapPreview.x)} cy={sy(snapPreview.y)} r={8/zoom}
+                  fill="none" stroke="#10b981" strokeWidth={1.5/zoom}
+                  style={{ pointerEvents: 'none' }} />
+              )}
 
               {/* Walls */}
               {model.walls.filter(w=>w.floor===activeFloor).map(w=>(
@@ -789,7 +828,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
 
       {/* ── Hint bar ────────────────────────────────────────────── */}
       <div className="px-5 py-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-        <span>Scroll to zoom · drag to pan · click member to edit</span>
+        <span>{addMode ? 'Add mode: click grid intersections to place beam endpoints' : 'Scroll to zoom · drag to pan · click member to edit'}</span>
         {needsAdjust && (
           <span style={{ color: hasOverstressed ? '#ef4444' : '#f59e0b' }}>
             {hasOverstressed ? `${summary.overstressed} overstressed` : `${summary.warning} at capacity`}
