@@ -144,9 +144,18 @@ async def update_model(model_id: str, edit: ModelEditRequest) -> GenerationRespo
     if edit.steel_overrides is not None:
         model.steel_overrides = edit.steel_overrides
 
+    if edit.columns is not None:
+        new_cols = []
+        for ce in edit.columns:
+            cid = ce.id if not ce.id.startswith("new-") else str(_uuid.uuid4())
+            new_cols.append(Column(id=cid, position=ce.position, width=ce.width, depth=ce.depth))
+        model.columns = new_cols
+
     regen_structural = (
-        edit.structural_spacings_x is not None or
-        edit.structural_spacings_y is not None
+        edit.columns is None and (
+            edit.structural_spacings_x is not None or
+            edit.structural_spacings_y is not None
+        )
     )
     if regen_structural:
         sx = edit.structural_spacings_x or (model.structural_grid.spacings_x if model.structural_grid else [])

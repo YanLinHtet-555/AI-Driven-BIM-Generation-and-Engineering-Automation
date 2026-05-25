@@ -148,6 +148,9 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
   } | null>(null)
   const [saving, setSaving] = useState(false)
   const [snapPreview, setSnapPreview] = useState<{ x: number; y: number } | null>(null)
+  const [addColMode, setAddColMode] = useState(false)
+  const [colDrag, setColDrag] = useState<{ colId: string; currentX: number; currentY: number } | null>(null)
+  const [colPosInput, setColPosInput] = useState({ x: '', y: '' })
 
   // Convert screen mouse pos → building coordinates
   const toBuilding = useCallback((e: { clientX: number; clientY: number }) => {
@@ -175,7 +178,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
 
   // ── SVG event handlers ─────────────────────────────────────────
   const handleSVGMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
-    if (addMode) return
+    if (addMode || addColMode) return
     didPan.current = false
     drag.current = { on: true, mx: e.clientX, my: e.clientY, px: pRef.current.x, py: pRef.current.y }
     setCursor('grabbing')
@@ -189,6 +192,11 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
       setSnapPreview({ x, y })
       return
     }
+    if (colDrag) {
+      const { x, y } = toBuilding(e)
+      setColDrag(prev => prev ? { ...prev, currentX: x, currentY: y } : null)
+      return
+    }
     if (drag.current.on) {
       const dx = e.clientX - drag.current.mx
       const dy = e.clientY - drag.current.my
@@ -200,6 +208,8 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
       const snapped = snapToColumn(raw.x, raw.y)
       setSnapPreview(snapped)
       if (addStart) setGhostEnd(snapped)
+    } else if (addColMode) {
+      setSnapPreview(toBuilding(e))
     } else {
       setSnapPreview(null)
     }
@@ -214,12 +224,24 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
       commitBeamEndpoint(saved.beamId, saved.endpoint, saved.currentX, saved.currentY)
       return
     }
-    setCursor(addMode ? 'crosshair' : 'default')
+    if (colDrag) {
+      const saved = { ...colDrag }
+      setColDrag(null)
+      setCursor('default')
+      commitMoveColumn(saved.colId, saved.currentX, saved.currentY)
+      return
+    }
+    setCursor(addMode || addColMode ? 'crosshair' : 'default')
   }
 
   const handleSVGClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (didPan.current) return
     const raw = toBuilding(e)
+    if (addColMode) {
+      commitAddColumn(raw.x, raw.y)
+      setSnapPreview(null)
+      return
+    }
     const { x, y } = snapToColumn(raw.x, raw.y)
     if (addMode) {
       if (!addStart) {
@@ -314,6 +336,46 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
     } finally { setSaving(false) }
   }
 
+  // ── Column PATCH helpers ───────────────────────────────────────
+  const columnsPayload = () =>
+    model.columns.map(c => ({ id: c.id, position: c.position, width: c.width, depth: c.depth }))
+
+  const commitMoveColumn = async (colId: string, x: number, y: number) => {
+    if (!onUpdate) return
+    const columns = columnsPayload().map(c => c.id !== colId ? c : { ...c, position: { x, y } })
+    setSaving(true)
+    try { onUpdate(await patchModel(model.id, { floor: activeFloor, columns, steel_overrides: model.steel_overrides })) }
+    finally { setSaving(false) }
+  }
+
+  const commitDeleteColumn = async (colId: string) => {
+    if (!onUpdate) return
+    const columns = columnsPayload().filter(c => c.id !== colId)
+    const overrides = model.steel_overrides.filter(o => o.ref_id !== colId)
+    setSaving(true)
+    try {
+      onUpdate(await patchModel(model.id, { floor: activeFloor, columns, steel_overrides: overrides }))
+      setSelectedRefId(null)
+    } finally { setSaving(false) }
+  }
+
+  const commitAddColumn = async (x: number, y: number) => {
+    if (!onUpdate) return
+    const columns = [...columnsPayload(), { id: `new-${Date.now()}`, position: { x, y }, width: 0.5, depth: 0.5 }]
+    setSaving(true)
+    try {
+      onUpdate(await patchModel(model.id, { floor: activeFloor, columns, steel_overrides: model.steel_overrides }))
+      setAddColMode(false)
+    } finally { setSaving(false) }
+  }
+
+  const applyColPosInput = () => {
+    if (!selectedRefId || !selectedColumn) return
+    const x = parseFloat(colPosInput.x); const y = parseFloat(colPosInput.y)
+    if (isNaN(x) || isNaN(y)) return
+    commitMoveColumn(selectedRefId, x, y)
+  }
+
   // ── Properties panel (beam) ─────────────────────────────────────
   const selectedBeam   = model.beams.find(b => b.id === selectedRefId)
   const selectedMember = members.find(m => m.ref_id === selectedRefId)
@@ -330,6 +392,12 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
       ey: String(selectedBeam.end.y),
     })
   }, [selectedRefId, selectedBeam?.start.x, selectedBeam?.start.y, selectedBeam?.end.x, selectedBeam?.end.y]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedColumn = !selectedBeam ? model.columns.find(c => c.id === selectedRefId) : undefined
+  useEffect(() => {
+    if (!selectedColumn) return
+    setColPosInput({ x: String(selectedColumn.position.x), y: String(selectedColumn.position.y) })
+  }, [selectedRefId, selectedColumn?.position.x, selectedColumn?.position.y]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const applyPosInputs = () => {
     if (!selectedBeam) return
@@ -405,23 +473,32 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
           ))}
           {/* Mode buttons */}
           <div className="flex gap-1 ml-2">
-            <button onClick={() => { setAddMode(false); setAddStart(null); setGhostEnd(null); setSnapPreview(null) }}
+            <button onClick={() => { setAddMode(false); setAddColMode(false); setAddStart(null); setGhostEnd(null); setSnapPreview(null); setCursor('default') }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                !addMode ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 bg-white border border-slate-200'
+                !addMode && !addColMode ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 bg-white border border-slate-200'
               }`}>
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5" />
               </svg>
               Select
             </button>
-            <button onClick={() => { setAddMode(true); setSelectedRefId(null); setCursor('crosshair') }}
+            <button onClick={() => { setAddMode(true); setAddColMode(false); setSelectedRefId(null); setCursor('crosshair') }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
                 addMode ? 'bg-green-600 text-white' : 'text-slate-500 hover:text-slate-700 bg-white border border-slate-200'
               }`}>
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
-              {addStart ? 'Click end point…' : 'Add Beam'}
+              {addStart ? 'Click end…' : 'Add Beam'}
+            </button>
+            <button onClick={() => { setAddColMode(true); setAddMode(false); setAddStart(null); setGhostEnd(null); setSelectedRefId(null); setCursor('crosshair') }}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                addColMode ? 'bg-purple-600 text-white' : 'text-slate-500 hover:text-slate-700 bg-white border border-slate-200'
+              }`}>
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3h14M5 21h14M5 3v18M19 3v18M12 3v18" />
+              </svg>
+              Add Col
             </button>
           </div>
         </div>
@@ -638,18 +715,27 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
               {colMems.map(m => {
                 const col  = model.columns.find(c=>c.id===m.ref_id)
                 if (!col) return null
+                // Live drag position
+                const px2 = colDrag?.colId === col.id ? colDrag.currentX : col.position.x
+                const py2 = colDrag?.colId === col.id ? colDrag.currentY : col.position.y
                 const cs   = Math.max(col.width*scale, 7)
                 const isSel = selectedRefId === col.id
                 return (
                   <g key={m.id}
-                    style={{cursor:'pointer'}}
-                    onClick={e=>{e.stopPropagation(); if(!addMode) setSelectedRefId(col.id)}}>
-                    <rect x={sx(col.position.x)-cs/2} y={sy(col.position.y)-cs/2}
+                    style={{cursor: isSel ? 'move' : 'pointer'}}
+                    onClick={e=>{e.stopPropagation(); if(!addMode && !addColMode) setSelectedRefId(col.id)}}
+                    onMouseDown={e=>{
+                      if (!isSel || addMode || addColMode) return
+                      e.stopPropagation()
+                      setColDrag({ colId: col.id, currentX: col.position.x, currentY: col.position.y })
+                      setCursor('move')
+                    }}>
+                    <rect x={sx(px2)-cs/2} y={sy(py2)-cs/2}
                       width={cs} height={cs}
                       fill={isSel ? '#3b82f6' : STATUS_COLOR[m.status]}
                       stroke={isSel ? '#1d4ed8' : 'white'}
                       strokeWidth={isSel ? 2/zoom : 1}/>
-                    <text x={sx(col.position.x)} y={sy(col.position.y)+cs/2+10/zoom}
+                    <text x={sx(px2)} y={sy(py2)+cs/2+10/zoom}
                       textAnchor="middle" fontSize={8/zoom} fontFamily="monospace"
                       fill={isSel ? '#1d4ed8' : STATUS_COLOR[m.status]}
                       style={{pointerEvents:'none'}}>
@@ -671,6 +757,20 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
               {/* Add-beam start marker (no end yet) */}
               {addMode && addStart && !ghostEnd && (
                 <circle cx={sx(addStart.x)} cy={sy(addStart.y)} r={5/zoom} fill="#10b981" style={{pointerEvents:'none'}}/>
+              )}
+
+              {/* Add-column ghost square */}
+              {addColMode && snapPreview && (
+                <g style={{pointerEvents:'none'}}>
+                  <rect x={sx(snapPreview.x)-7/zoom} y={sy(snapPreview.y)-7/zoom}
+                    width={14/zoom} height={14/zoom}
+                    fill="#a855f7" fillOpacity={0.3} stroke="#a855f7" strokeWidth={1.5/zoom}
+                    strokeDasharray={`${4/zoom} ${3/zoom}`}/>
+                  <line x1={sx(snapPreview.x)-10/zoom} y1={sy(snapPreview.y)} x2={sx(snapPreview.x)+10/zoom} y2={sy(snapPreview.y)}
+                    stroke="#a855f7" strokeWidth={1/zoom}/>
+                  <line x1={sx(snapPreview.x)} y1={sy(snapPreview.y)-10/zoom} x2={sx(snapPreview.x)} y2={sy(snapPreview.y)+10/zoom}
+                    stroke="#a855f7" strokeWidth={1/zoom}/>
+                </g>
               )}
 
             </g>
@@ -755,9 +855,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
           )}
 
           {/* Properties panel — selected column */}
-          {selectedRefId && selectedColMem && (() => {
-            const col = model.columns.find(c => c.id === selectedRefId)
-            if (!col) return null
+          {selectedRefId && selectedColMem && selectedColumn && (() => {
             return (
               <div className="flex-1 overflow-y-auto p-3 space-y-3">
                 <div className="flex items-center justify-between">
@@ -768,26 +866,52 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
                     </svg>
                   </button>
                 </div>
+
+                {/* Section picker */}
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">Section</label>
                   <select
                     value={selectedColMem.section.designation}
-                    onChange={e => commitSectionOverride(col.id, e.target.value)}
+                    onChange={e => commitSectionOverride(selectedColumn.id, e.target.value)}
                     className="w-full px-2 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white font-mono"
                   >
                     {COL_SECTIONS.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
-                  {model.steel_overrides.some(o => o.ref_id === col.id) && (
-                    <button onClick={() => commitRemoveOverride(col.id)}
+                  {model.steel_overrides.some(o => o.ref_id === selectedColumn.id) && (
+                    <button onClick={() => commitRemoveOverride(selectedColumn.id)}
                       className="mt-1 text-xs text-amber-600 hover:text-amber-800 underline">Reset to auto</button>
                   )}
                 </div>
-                <div className="text-xs text-slate-500 space-y-1">
-                  <div className="flex justify-between"><span>Position</span><span className="font-mono">{col.position.x.toFixed(2)}, {col.position.y.toFixed(2)} m</span></div>
-                  <div className="flex justify-between"><span>Demand</span><span className="font-mono">{selectedColMem.demand.toFixed(0)} kN</span></div>
-                  <div className="flex justify-between"><span>Capacity</span><span className="font-mono">{selectedColMem.capacity.toFixed(0)} kN</span></div>
+
+                {/* Position inputs */}
+                <div>
+                  <p className="text-xs text-slate-400 mb-1.5">Position (m) · drag to move</p>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <NumInput label="X" value={colPosInput.x} onChange={v => setColPosInput(p => ({ ...p, x: v }))} />
+                    <NumInput label="Y" value={colPosInput.y} onChange={v => setColPosInput(p => ({ ...p, y: v }))} />
+                  </div>
                 </div>
-                <UtilBar u={selectedColMem.utilization} status={selectedColMem.status} />
+                <button onClick={applyColPosInput} disabled={saving}
+                  className="w-full py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg disabled:opacity-60">
+                  Apply Position
+                </button>
+
+                {/* Utilization */}
+                <div className="border-t border-slate-100 pt-2 space-y-1">
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Demand</span><span className="font-mono">{selectedColMem.demand.toFixed(0)} kN</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>Capacity</span><span className="font-mono">{selectedColMem.capacity.toFixed(0)} kN</span>
+                  </div>
+                  <UtilBar u={selectedColMem.utilization} status={selectedColMem.status} />
+                </div>
+
+                {/* Delete */}
+                <button onClick={() => commitDeleteColumn(selectedColumn.id)} disabled={saving}
+                  className="w-full py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded-lg border border-red-200 disabled:opacity-60">
+                  Delete Column
+                </button>
               </div>
             )
           })()}
@@ -828,7 +952,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
 
       {/* ── Hint bar ────────────────────────────────────────────── */}
       <div className="px-5 py-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-        <span>{addMode ? 'Add mode: click grid intersections to place beam endpoints' : 'Scroll to zoom · drag to pan · click member to edit'}</span>
+        <span>{addColMode ? 'Add column mode: click anywhere to place a new column' : addMode ? 'Add beam mode: click columns to set start / end points' : 'Scroll to zoom · drag to pan · click member to select · drag selected column to move'}</span>
         {needsAdjust && (
           <span style={{ color: hasOverstressed ? '#ef4444' : '#f59e0b' }}>
             {hasOverstressed ? `${summary.overstressed} overstressed` : `${summary.warning} at capacity`}

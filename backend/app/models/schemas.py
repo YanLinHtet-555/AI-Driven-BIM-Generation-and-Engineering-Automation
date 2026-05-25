@@ -342,6 +342,7 @@ class ModelEditRequest(BaseModel):
     structural_spacings_y: Optional[List[float]] = None
     floor_height: Optional[float] = None
     beams: Optional[List[BeamEdit]] = None
+    columns: Optional[List[Column]] = None
     steel_overrides: Optional[List[SteelOverride]] = None
 
 

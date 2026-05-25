@@ -183,6 +183,7 @@ export interface ModelEditRequest {
   structural_spacings_y?: number[]
   floor_height?: number
   beams?: BeamEdit[]
+  columns?: Column[]
   steel_overrides?: SteelOverride[]
 }
 
