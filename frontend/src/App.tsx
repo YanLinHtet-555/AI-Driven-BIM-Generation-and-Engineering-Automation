@@ -178,13 +178,13 @@ export default function App() {
                   <ResultsPanel result={result} />
                 )}
                 {activeView === 'steel' && (
-                  <SteelPlanViewer result={result} />
+                  <SteelPlanViewer result={result} onUpdate={setResult} />
                 )}
                 {activeView === 'cost' && (
                   <CostPanel result={result} />
                 )}
                 {activeView === 'strength' && (
-                  <StructuralPanel result={result} />
+                  <StructuralPanel result={result} onUpdate={setResult} />
                 )}
               </>
             ) : (
