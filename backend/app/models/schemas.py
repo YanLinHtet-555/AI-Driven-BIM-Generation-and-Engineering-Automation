@@ -206,6 +206,46 @@ class QuantityTakeoff(BaseModel):
     total_gross_area: float
 
 
+# ── Steel Design ─────────────────────────────────────────────────────────────
+
+class SteelSection(BaseModel):
+    designation: str
+    weight_per_m: float
+    area_cm2: float
+    depth_mm: float
+    Zx_cm3: float
+
+
+class SteelMember(BaseModel):
+    id: str
+    ref_id: str
+    member_type: str        # "beam" | "column"
+    floor: int
+    section: SteelSection
+    span_m: float
+    demand: float           # kN·m (beam) or kN (column)
+    capacity: float
+    utilization: float
+    status: str             # "ok" | "warning" | "overstressed"
+
+
+# ── Cost Estimate ─────────────────────────────────────────────────────────────
+
+class CostItem(BaseModel):
+    category: str
+    description: str
+    quantity: float
+    unit: str
+    unit_rate: float
+    amount: float
+
+
+class CostEstimate(BaseModel):
+    items: List[CostItem]
+    grand_total: float
+    currency: str = "USD"
+
+
 # ── Building Model ───────────────────────────────────────────────────────────
 
 class BuildingModel(BaseModel):
@@ -227,7 +267,62 @@ class BuildingModel(BaseModel):
     light_fixtures: List[LightFixture] = []
     distribution_boards: List[DistributionBoard] = []
     quantity_takeoff: Optional[QuantityTakeoff] = None
+    steel_members: List[SteelMember] = []
+    cost_estimate: Optional[CostEstimate] = None
     floor_height: float = 3.2
+
+
+class RoomEdit(BaseModel):
+    id: str
+    name: str
+    type: str
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class WallEdit(BaseModel):
+    id: str
+    start_x: float
+    start_y: float
+    end_x: float
+    end_y: float
+    thickness: float = 0.2
+    height: float = 3.0
+    is_external: bool = False
+
+
+class DoorEdit(BaseModel):
+    id: str
+    wall_id: str
+    position_x: float
+    position_y: float
+    width: float = 0.9
+    height: float = 2.1
+    floor: int
+
+
+class WindowEdit(BaseModel):
+    id: str
+    wall_id: str
+    position_x: float
+    position_y: float
+    width: float = 1.2
+    height: float = 1.2
+    sill_height: float = 0.9
+    floor: int
+
+
+class ModelEditRequest(BaseModel):
+    floor: int = 0
+    rooms: Optional[List[RoomEdit]] = None
+    walls: Optional[List[WallEdit]] = None
+    doors: Optional[List[DoorEdit]] = None
+    windows: Optional[List[WindowEdit]] = None
+    structural_spacings_x: Optional[List[float]] = None
+    structural_spacings_y: Optional[List[float]] = None
+    floor_height: Optional[float] = None
 
 
 class GenerationRequest(BaseModel):

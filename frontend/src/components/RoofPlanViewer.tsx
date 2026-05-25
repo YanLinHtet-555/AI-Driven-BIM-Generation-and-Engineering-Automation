@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import type { GenerationResponse } from '../types/api'
+import type { RoofConfig } from '../types/viewer'
 
 // ── Constants (must match backend spatial_planner.py) ──────────────────────
 const SETBACK_FRONT = 4.0
@@ -10,17 +10,13 @@ const PAD   = 30
 const DIM_L = 50
 const DIM_T = 45
 
-interface Props { result: GenerationResponse }
-
-type RoofShape = 'flat' | 'gable' | 'hip' | 'shed' | 'pyramid'
-
-interface RoofConfig {
-  shape:        RoofShape
-  pitch:        number        // 5–60 °
-  overhang:     number        // 0.3–1.5 m
-  gableAxis:    'EW' | 'NS'   // gable only: ridge runs E-W or N-S
-  shedHighEdge: 'N' | 'S' | 'E' | 'W'  // shed only
+interface Props {
+  result: GenerationResponse
+  config: RoofConfig
+  onConfigChange: (c: RoofConfig) => void
 }
+
+type RoofShape = RoofConfig['shape']
 
 const SHAPES: { id: RoofShape; label: string; icon: string }[] = [
   { id: 'flat',    label: 'Flat',    icon: '▬' },
@@ -280,11 +276,8 @@ function buildRoofSVG(siteW: number, siteH: number, cfg: RoofConfig): string {
 }
 
 // ── React component ──────────────────────────────────────────────────────────
-export default function RoofPlanViewer({ result }: Props) {
-  const [cfg, setCfg] = useState<RoofConfig>({
-    shape: 'hip', pitch: 30, overhang: 0.6, gableAxis: 'EW', shedHighEdge: 'N',
-  })
-  const set = (p: Partial<RoofConfig>) => setCfg(c => ({ ...c, ...p }))
+export default function RoofPlanViewer({ result, config: cfg, onConfigChange }: Props) {
+  const set = (p: Partial<RoofConfig>) => onConfigChange({ ...cfg, ...p })
 
   const { site_width: siteW, site_depth: siteH } = result.requirements
   const svg = buildRoofSVG(siteW, siteH, cfg)
