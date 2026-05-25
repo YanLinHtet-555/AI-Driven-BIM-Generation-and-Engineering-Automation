@@ -12,7 +12,7 @@ from ...engines.mep_engine import generate_mep_systems
 from ...engines.quantity_takeoff import generate_quantity_takeoff
 from ...engines.ifc_engine import generate_ifc
 from ...engines.svg_renderer import render_floor_plan
-from ...engines.steel_engine import generate_steel_members
+from ...engines.steel_engine import generate_steel_members, optimize_structure
 from ...engines.cost_engine import generate_cost_estimate
 from ... import state
 
@@ -180,6 +180,32 @@ async def update_model(model_id: str, edit: ModelEditRequest) -> GenerationRespo
         floor_plan_svg=svg,
         ifc_available=True,
         message="Model updated successfully",
+    )
+
+
+@router.post("/models/{model_id}/optimize", response_model=GenerationResponse)
+async def optimize_model(model_id: str) -> GenerationResponse:
+    model = state.get_model(model_id)
+    if model is None:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    model = optimize_structure(model)
+    model = generate_mep_systems(model)
+    model = generate_quantity_takeoff(model)
+    model = generate_cost_estimate(model)
+    ifc_text = generate_ifc(model)
+    svg = render_floor_plan(model, target_floor=0)
+
+    state.save_model(model)
+    state.save_ifc(model.id, ifc_text)
+
+    return GenerationResponse(
+        model_id=model.id,
+        requirements=model.requirements,
+        building_model=model,
+        floor_plan_svg=svg,
+        ifc_available=True,
+        message="Structure optimized",
     )
 
 

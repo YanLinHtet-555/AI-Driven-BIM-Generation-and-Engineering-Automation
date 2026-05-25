@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { GenerationResponse } from '../types/api'
-import { patchModel } from '../api/client'
+import { optimizeModel, patchModel } from '../api/client'
 
 interface Props {
   result: GenerationResponse
@@ -354,14 +354,10 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
   const [adjusting, setAdjusting] = useState(false)
 
   const handleAutoAdjust = async () => {
-    if (!sg || !onUpdate) return
-    const factor = hasOverstressed ? 0.70 : 0.85
-    const newSx = sg.spacings_x.map(s => Math.max(2.0, +(s * factor).toFixed(2)))
-    const newSy = sg.spacings_y.map(s => Math.max(2.0, +(s * factor).toFixed(2)))
+    if (!onUpdate) return
     setAdjusting(true)
-    try {
-      onUpdate(await patchModel(model.id, { floor: 0, structural_spacings_x: newSx, structural_spacings_y: newSy }))
-    } finally { setAdjusting(false) }
+    try { onUpdate(await optimizeModel(model.id)) }
+    finally { setAdjusting(false) }
   }
 
   // ── Display data ────────────────────────────────────────────────
@@ -444,7 +440,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
             </button>
           </div>
           {/* Auto-adjust */}
-          {needsAdjust && onUpdate && sg && (
+          {needsAdjust && onUpdate && (
             <button onClick={handleAutoAdjust} disabled={adjusting}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all disabled:opacity-60 ${
                 hasOverstressed ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-amber-500 hover:bg-amber-600 text-white'

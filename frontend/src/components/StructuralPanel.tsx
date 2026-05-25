@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { GenerationResponse, SteelMember } from '../types/api'
-import { patchModel } from '../api/client'
+import { optimizeModel } from '../api/client'
 
 interface Props {
   result: GenerationResponse
@@ -55,7 +55,6 @@ function SortTh({ label, col, sort, onSort }: {
 export default function StructuralPanel({ result, onUpdate }: Props) {
   const model   = result.building_model
   const members = model.steel_members ?? []
-  const sg      = model.structural_grid
 
   const [filter,    setFilter]    = useState<'all' | 'beam' | 'column'>('all')
   const [sort,      setSort]      = useState<{ key: SortKey; dir: SortDir }>({ key: 'utilization', dir: 'desc' })
@@ -94,21 +93,10 @@ export default function StructuralPanel({ result, onUpdate }: Props) {
   }
 
   const handleAutoAdjust = async () => {
-    if (!sg || !onUpdate) return
-    const factor = hasOverstressed ? 0.70 : 0.85
-    const newSx = sg.spacings_x.map(s => Math.max(2.0, +(s * factor).toFixed(2)))
-    const newSy = sg.spacings_y.map(s => Math.max(2.0, +(s * factor).toFixed(2)))
+    if (!onUpdate) return
     setAdjusting(true)
-    try {
-      const updated = await patchModel(model.id, {
-        floor: 0,
-        structural_spacings_x: newSx,
-        structural_spacings_y: newSy,
-      })
-      onUpdate(updated)
-    } finally {
-      setAdjusting(false)
-    }
+    try { onUpdate(await optimizeModel(model.id)) }
+    finally { setAdjusting(false) }
   }
 
   if (members.length === 0) {
@@ -128,7 +116,7 @@ export default function StructuralPanel({ result, onUpdate }: Props) {
           <h2 className="text-sm font-semibold text-slate-800">Structural Strength Check</h2>
           <p className="text-xs text-slate-400 mt-0.5">LRFD utilization ratios — demand / φ·capacity</p>
         </div>
-        {needsAdjust && onUpdate && sg && (
+        {needsAdjust && onUpdate && (
           <button onClick={handleAutoAdjust} disabled={adjusting}
             className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all disabled:opacity-60 ${
               hasOverstressed
@@ -180,8 +168,8 @@ export default function StructuralPanel({ result, onUpdate }: Props) {
               d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
           {hasOverstressed
-            ? `${summary.overstressed} member(s) overstressed. "Fix Overstressed" reduces bay spacings by 30% to lower demand.`
-            : `${summary.warning} member(s) near capacity (80–100%). "Optimize" reduces bay spacings by 15% for extra margin.`}
+            ? `${summary.overstressed} member(s) overstressed. "Fix Overstressed" upgrades sections, splits long beams, and adds columns where needed.`
+            : `${summary.warning} member(s) near capacity (80–100%). "Optimize" upgrades section sizes for extra margin.`}
         </div>
       )}
 

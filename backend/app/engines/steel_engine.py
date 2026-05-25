@@ -3,7 +3,10 @@ import math
 import uuid
 from dataclasses import dataclass
 from typing import List, Optional
-from ..models.schemas import BuildingModel, SteelSection, SteelMember
+from ..models.schemas import (
+    BuildingModel, SteelSection, SteelMember,
+    Column, Beam, Point2D, SteelOverride,
+)
 
 
 # ── W-shape beam database (CISC metric) ───────────────────────────────────────
@@ -169,3 +172,136 @@ def generate_steel_members(model: BuildingModel) -> BuildingModel:
 
     model.steel_members = members
     return model
+
+
+# ── Smart structural optimizer ────────────────────────────────────────────────
+
+def _insert_intermediate_columns(
+    ref_col_id: str,
+    all_cols: List[Column],
+    new_cols_out: List[Column],
+    new_beams_out: List[Beam],
+) -> None:
+    """Insert new columns at mid-spans between an overloaded column and its neighbours,
+    plus short beams that tie them into the structure."""
+    src = next((c for c in all_cols if c.id == ref_col_id), None)
+    if src is None:
+        return
+    ox, oy = src.position.x, src.position.y
+
+    # Nearest neighbours in the same row (same Y) and same column (same X)
+    row_nbrs = sorted(
+        [c for c in all_cols if abs(c.position.y - oy) < 0.5 and c.id != ref_col_id],
+        key=lambda c: abs(c.position.x - ox),
+    )
+    col_nbrs = sorted(
+        [c for c in all_cols if abs(c.position.x - ox) < 0.5 and c.id != ref_col_id],
+        key=lambda c: abs(c.position.y - oy),
+    )
+
+    def _add(mx: float, my: float) -> None:
+        new_id = str(uuid.uuid4())
+        new_cols_out.append(Column(
+            id=new_id,
+            position=Point2D(x=round(mx, 3), y=round(my, 3)),
+            width=0.5, depth=0.5,
+        ))
+        new_beams_out.append(Beam(
+            id=str(uuid.uuid4()),
+            start=Point2D(x=ox, y=oy),
+            end=Point2D(x=round(mx, 3), y=round(my, 3)),
+            floor=0, width=0.3, depth=0.5, grid_ref="opt",
+        ))
+
+    for nbr in row_nbrs[:2]:
+        _add((ox + nbr.position.x) / 2, oy)
+    for nbr in col_nbrs[:2]:
+        _add(ox, (oy + nbr.position.y) / 2)
+
+
+def optimize_structure(model: BuildingModel) -> BuildingModel:
+    """Three-tier structural optimiser:
+      1. Upgrade section sizes for warning / overstressed members.
+      2. Split overstressed beams in two by inserting a mid-span column.
+      3. Add intermediate columns around overloaded columns.
+    User section overrides that are already OK are preserved.
+    """
+    # ── Pass 0: establish baseline with auto-selection ────────────────
+    baseline = generate_steel_members(model)
+
+    # Keep user overrides only for already-OK members
+    ok_ref_ids = {m.ref_id for m in baseline.steel_members if m.status == "ok"}
+    new_overrides: dict[str, str] = {
+        o.ref_id: o.designation
+        for o in model.steel_overrides
+        if o.ref_id in ok_ref_ids
+    }
+
+    new_cols: List[Column] = list(model.columns)
+    new_beams: List[Beam] = list(model.beams)
+    beams_to_split: set[str] = set()
+
+    for mem in baseline.steel_members:
+        if mem.status == "ok":
+            continue
+
+        if mem.member_type == "beam":
+            # Try section upgrade to reach ≤80 % utilization
+            target_cap = mem.demand / 0.80
+            upgraded = next(
+                (s for s in _BEAM_DB if _phi_Mp_kNm(s.Zx) >= target_cap), None
+            )
+            if upgraded:
+                new_overrides[mem.ref_id] = upgraded.desig
+            else:
+                # Max section can't handle span → split the beam
+                beams_to_split.add(mem.ref_id)
+
+        else:  # column
+            target_cap = mem.demand / 0.80
+            upgraded_c = next(
+                (s for s in _COL_DB if _phi_Pn_kN(s.area) >= target_cap), None
+            )
+            if upgraded_c:
+                new_overrides[mem.ref_id] = upgraded_c.desig
+            else:
+                # Beyond max column section → add intermediate columns
+                _insert_intermediate_columns(
+                    mem.ref_id, new_cols, new_cols, new_beams
+                )
+
+    # ── Split beams that need a mid-span support ──────────────────────
+    extra_beams: List[Beam] = []
+    for bid in beams_to_split:
+        beam = next((b for b in new_beams if b.id == bid), None)
+        if beam is None:
+            continue
+        mid_x = round((beam.start.x + beam.end.x) / 2, 3)
+        mid_y = round((beam.start.y + beam.end.y) / 2, 3)
+        new_cols.append(Column(
+            id=str(uuid.uuid4()),
+            position=Point2D(x=mid_x, y=mid_y),
+            width=0.5, depth=0.5,
+        ))
+        extra_beams.append(Beam(
+            id=str(uuid.uuid4()), start=beam.start,
+            end=Point2D(x=mid_x, y=mid_y),
+            floor=beam.floor, width=beam.width, depth=beam.depth,
+            grid_ref=beam.grid_ref,
+        ))
+        extra_beams.append(Beam(
+            id=str(uuid.uuid4()),
+            start=Point2D(x=mid_x, y=mid_y),
+            end=beam.end,
+            floor=beam.floor, width=beam.width, depth=beam.depth,
+            grid_ref=beam.grid_ref,
+        ))
+        new_overrides.pop(bid, None)  # let auto-selection size the new halves
+
+    model.beams = [b for b in new_beams if b.id not in beams_to_split] + extra_beams
+    model.columns = new_cols
+    model.steel_overrides = [
+        SteelOverride(ref_id=k, designation=v) for k, v in new_overrides.items()
+    ]
+
+    return generate_steel_members(model)

@@ -27,6 +27,15 @@ export function floorplanUrl(modelId: string, floor = 0): string {
   return `${BASE}/models/${modelId}/floorplan?floor=${floor}`
 }
 
+export async function optimizeModel(modelId: string): Promise<GenerationResponse> {
+  const res = await fetch(`${BASE}/models/${modelId}/optimize`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Optimization failed' }))
+    throw new Error(err.detail ?? `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
 export async function patchModel(modelId: string, edit: ModelEditRequest): Promise<GenerationResponse> {
   const res = await fetch(`${BASE}/models/${modelId}`, {
     method: 'PATCH',
