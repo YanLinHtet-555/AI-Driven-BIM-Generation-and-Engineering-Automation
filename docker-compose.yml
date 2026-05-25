@@ -1,32 +1,59 @@
-version: '3.9'
-
 services:
+
+  # ── Ollama (local AI runtime) ──────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
+    container_name: bim-ollama
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
+    # ── NVIDIA GPU — uncomment to enable ──────────────────────────────
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
 
+  # ── Backend (FastAPI) ──────────────────────────────────────────────
   backend:
-    build: ./backend
-    ports:
-      - "8000:8000"
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bim-backend
     environment:
+      # Point to the Ollama container, not localhost
       - OLLAMA_HOST=http://ollama:11434
-      - OLLAMA_MODEL=gpt-oss
+      # Override these here or in backend/.env
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.1:70b}
+      - OLLAMA_VISION_MODEL=${OLLAMA_VISION_MODEL:-llama3.2-vision:11b}
+    env_file:
+      - ./backend/.env          # OLLAMA_HOST here is overridden by environment above
     depends_on:
       - ollama
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # ── Frontend (React → nginx) ───────────────────────────────────────
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bim-frontend
     ports:
-      - "5173:80"
+      - "80:80"
     depends_on:
       - backend
     restart: unless-stopped
 
 volumes:
+  # Model files persist here — survives container restarts/rebuilds
   ollama_data:
+    name: bim-ollama-models

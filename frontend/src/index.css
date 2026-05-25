@@ -7,5 +7,22 @@
     font-family: 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-color: #F1F5F9;
+  }
+}
+
+@layer utilities {
+  .bg-grid-pattern {
+    background-color: #F1F5F9;
+    background-image:
+      linear-gradient(rgba(148,163,184,0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,0.12) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-gray-200/80 shadow-sm;
+  }
+  .card-hover {
+    @apply transition-shadow hover:shadow-md;
   }
 }

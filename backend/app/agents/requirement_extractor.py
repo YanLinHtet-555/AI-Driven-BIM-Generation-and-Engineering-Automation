@@ -12,8 +12,10 @@ from ..models.schemas import (
     BuildingRequirements, RoomRequirement, OccupancyType, RoomType, StructureType,
 )
 
-OLLAMA_HOST  = os.getenv("OLLAMA_HOST",  "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gpt-oss")
+OLLAMA_HOST         = os.getenv("OLLAMA_HOST",         "http://localhost:11434")
+OLLAMA_MODEL        = os.getenv("OLLAMA_MODEL",        "gpt-oss")
+# Vision model for image description (Pass 1). Falls back to OLLAMA_MODEL if not set.
+OLLAMA_VISION_MODEL = os.getenv("OLLAMA_VISION_MODEL", OLLAMA_MODEL)
 
 _JSON_SCHEMA = """{
   "building_type": "residential|office|mixed_use|retail|commercial",
@@ -197,7 +199,7 @@ async def extract_requirements_from_file(
         client = ollama.AsyncClient(host=OLLAMA_HOST)
         try:
             desc_response = await client.chat(
-                model=OLLAMA_MODEL,
+                model=OLLAMA_VISION_MODEL,
                 messages=[{
                     "role": "user",
                     "content": VISION_DESCRIBE_PROMPT,
@@ -208,9 +210,9 @@ async def extract_requirements_from_file(
             description = desc_response.message.content.strip()
         except Exception as exc:
             raise RuntimeError(
-                f"Model '{OLLAMA_MODEL}' does not support image input. "
-                "Install a vision model and set OLLAMA_MODEL — e.g. "
-                "'ollama pull llama3.2-vision' then set OLLAMA_MODEL=llama3.2-vision in backend/.env"
+                f"Model '{OLLAMA_VISION_MODEL}' does not support image input. "
+                "Install a vision model and set OLLAMA_VISION_MODEL in backend/.env — e.g. "
+                "'ollama pull llama3.2-vision' then set OLLAMA_VISION_MODEL=llama3.2-vision"
             ) from exc
 
         if not description:
