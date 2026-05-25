@@ -160,13 +160,18 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
     }
   }, [siteW, siteD, scale, H])
 
-  // Snap a building coordinate to the nearest grid intersection
-  const snapToGrid = useCallback((x: number, y: number) => {
-    if (!gridXs.length || !gridYs.length) return { x, y }
-    const nx = gridXs.reduce((a, b) => Math.abs(b - x) < Math.abs(a - x) ? b : a)
-    const ny = gridYs.reduce((a, b) => Math.abs(b - y) < Math.abs(a - y) ? b : a)
-    return { x: nx, y: ny }
-  }, [gridXs, gridYs])
+  // Snap a building coordinate to the nearest column position
+  const snapToColumn = useCallback((x: number, y: number) => {
+    const cols = model.columns
+    if (!cols.length) return { x, y }
+    let best = cols[0]
+    let bestDist = Infinity
+    for (const c of cols) {
+      const d = Math.hypot(c.position.x - x, c.position.y - y)
+      if (d < bestDist) { bestDist = d; best = c }
+    }
+    return { x: best.position.x, y: best.position.y }
+  }, [model.columns])
 
   // ── SVG event handlers ─────────────────────────────────────────
   const handleSVGMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
@@ -179,7 +184,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
   const handleSVGMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (endpointDrag) {
       const raw = toBuilding(e)
-      const { x, y } = snapToGrid(raw.x, raw.y)
+      const { x, y } = snapToColumn(raw.x, raw.y)
       setEndpointDrag(prev => prev ? { ...prev, currentX: x, currentY: y } : null)
       setSnapPreview({ x, y })
       return
@@ -192,7 +197,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
     }
     if (addMode) {
       const raw = toBuilding(e)
-      const snapped = snapToGrid(raw.x, raw.y)
+      const snapped = snapToColumn(raw.x, raw.y)
       setSnapPreview(snapped)
       if (addStart) setGhostEnd(snapped)
     } else {
@@ -215,7 +220,7 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
   const handleSVGClick = (e: React.MouseEvent<SVGSVGElement>) => {
     if (didPan.current) return
     const raw = toBuilding(e)
-    const { x, y } = snapToGrid(raw.x, raw.y)
+    const { x, y } = snapToColumn(raw.x, raw.y)
     if (addMode) {
       if (!addStart) {
         setAddStart({ x, y })
@@ -331,8 +336,8 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
     const sx2 = parseFloat(posInput.sx); const sy2 = parseFloat(posInput.sy)
     const ex2 = parseFloat(posInput.ex); const ey2 = parseFloat(posInput.ey)
     if ([sx2, sy2, ex2, ey2].some(isNaN)) return
-    const s = snapToGrid(sx2, sy2)
-    const end = snapToGrid(ex2, ey2)
+    const s = snapToColumn(sx2, sy2)
+    const end = snapToColumn(ex2, ey2)
     commitBeamPositionEdit(selectedBeam.id, s.x, s.y, end.x, end.y)
   }
 
@@ -550,21 +555,20 @@ export default function SteelPlanViewer({ result, onUpdate }: Props) {
               <rect x={sx(0)} y={sy(siteD)} width={siteW*scale} height={siteD*scale}
                 fill="none" stroke="#cbd5e1" strokeWidth={1} strokeDasharray="5 3" rx={2}/>
 
-              {/* Grid intersection dots — shown in add mode and during endpoint drag */}
-              {(addMode || endpointDrag) && gridXs.map(gx =>
-                gridYs.map(gy => (
-                  <circle key={`gi-${gx}-${gy}`}
-                    cx={sx(gx)} cy={sy(gy)} r={3/zoom}
-                    fill="#10b981" opacity={0.45}
-                    style={{ pointerEvents: 'none' }} />
-                ))
-              )}
+              {/* Column snap targets — highlight all columns in add/drag mode */}
+              {(addMode || endpointDrag) && model.columns.map(c => (
+                <circle key={`cs-${c.id}`}
+                  cx={sx(c.position.x)} cy={sy(c.position.y)}
+                  r={Math.max(c.width * scale, 7) * 0.9}
+                  fill="none" stroke="#10b981" strokeWidth={1/zoom} opacity={0.5}
+                  style={{ pointerEvents: 'none' }} />
+              ))}
 
-              {/* Snap preview ring — nearest grid node under cursor */}
+              {/* Snap preview ring — nearest column under cursor */}
               {(addMode || endpointDrag) && snapPreview && (
                 <circle
-                  cx={sx(snapPreview.x)} cy={sy(snapPreview.y)} r={8/zoom}
-                  fill="none" stroke="#10b981" strokeWidth={1.5/zoom}
+                  cx={sx(snapPreview.x)} cy={sy(snapPreview.y)} r={10/zoom}
+                  fill="#10b981" fillOpacity={0.2} stroke="#10b981" strokeWidth={2/zoom}
                   style={{ pointerEvents: 'none' }} />
               )}
 
