@@ -95,12 +95,12 @@ export default function App() {
   const [roofConfig, setRoofConfig] = useState<RoofConfig>(DEFAULT_ROOF_CONFIG)
   const [activeView, setActiveView] = useState<ViewId>('floorplan')
 
-  const handleGenerate = async (prompt: string) => {
+  const handleGenerate = async (prompt: string, file?: File) => {
     setLoading(true)
     setError(null)
     setResult(null)
     try {
-      const data = await generateBuilding(prompt)
+      const data = await generateBuilding(prompt, file)
       setResult(data)
       setActiveView('floorplan')
     } catch (e) {

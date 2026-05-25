@@ -1,11 +1,12 @@
 import uuid as _uuid
-from fastapi import APIRouter, HTTPException
+from typing import Optional
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from ...models.schemas import (
-    GenerationRequest, GenerationResponse, ModelEditRequest,
+    GenerationResponse, ModelEditRequest,
     Room, RoomType, Wall, Door, Window, Point2D, Column, Beam, SteelOverride,
 )
-from ...agents.requirement_extractor import extract_requirements
+from ...agents.requirement_extractor import extract_requirements, extract_requirements_from_file
 from ...engines.spatial_planner import generate_building_model, SETBACK_SIDE, SETBACK_FRONT
 from ...engines.structural_engine import generate_structural_elements
 from ...engines.mep_engine import generate_mep_systems
@@ -20,11 +21,18 @@ router = APIRouter()
 
 
 @router.post("/generate", response_model=GenerationResponse)
-async def generate_building(request: GenerationRequest) -> GenerationResponse:
-    if not request.prompt.strip():
-        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+async def generate_building(
+    prompt: str = Form(""),
+    file: Optional[UploadFile] = File(None),
+) -> GenerationResponse:
+    if not prompt.strip() and file is None:
+        raise HTTPException(status_code=400, detail="Provide a prompt or attach a sketch file")
 
-    requirements = await extract_requirements(request.prompt)
+    if file is not None:
+        file_bytes = await file.read()
+        requirements = await extract_requirements_from_file(file_bytes, file.content_type, prompt)
+    else:
+        requirements = await extract_requirements(prompt)
 
     model = generate_building_model(requirements)
     model = generate_structural_elements(model)

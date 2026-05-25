@@ -2,12 +2,11 @@ import type { GenerationResponse, ModelEditRequest } from '../types/api'
 
 const BASE = '/api/v1'
 
-export async function generateBuilding(prompt: string): Promise<GenerationResponse> {
-  const res = await fetch(`${BASE}/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt }),
-  })
+export async function generateBuilding(prompt: string, file?: File): Promise<GenerationResponse> {
+  const form = new FormData()
+  form.append('prompt', prompt)
+  if (file) form.append('file', file)
+  const res = await fetch(`${BASE}/generate`, { method: 'POST', body: form })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Request failed' }))
     throw new Error(err.detail ?? `HTTP ${res.status}`)
