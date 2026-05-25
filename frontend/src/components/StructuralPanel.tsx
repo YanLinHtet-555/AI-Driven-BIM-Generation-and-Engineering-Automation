@@ -26,7 +26,7 @@ function UtilBar({ u, status }: { u: number; status: string }) {
   const pct = Math.min(u * 100, 100)
   return (
     <div className="flex items-center gap-2 min-w-[120px]">
-      <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+      <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
         <div className="h-2 rounded-full transition-all"
           style={{ width: `${pct}%`, background: STATUS_COLOR[status] }} />
       </div>
@@ -45,7 +45,7 @@ function SortTh({ label, col, sort, onSort }: {
 }) {
   const active = sort.key === col
   return (
-    <th className="text-right px-4 py-2.5 text-slate-500 font-medium text-xs cursor-pointer select-none hover:text-slate-700"
+    <th className="text-right px-4 py-2.5 text-gray-500 font-medium text-xs cursor-pointer select-none hover:text-gray-700"
       onClick={() => onSort(col)}>
       {label}{active ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}
     </th>
@@ -101,20 +101,20 @@ export default function StructuralPanel({ result, onUpdate }: Props) {
 
   if (members.length === 0) {
     return (
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex items-center justify-center h-64">
-        <p className="text-slate-400 text-sm">No structural members — generate a building first</p>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex items-center justify-center h-64">
+        <p className="text-gray-400 text-sm">No structural members — generate a building first</p>
       </div>
     )
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+    <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
 
       {/* ── Header ─────────────────────────────────────────────────── */}
-      <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+      <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-slate-800">Structural Strength Check</h2>
-          <p className="text-xs text-slate-400 mt-0.5">LRFD utilization ratios — demand / φ·capacity</p>
+          <h2 className="text-sm font-semibold text-gray-800">Structural Strength Check</h2>
+          <p className="text-xs text-gray-400 mt-0.5">LRFD utilization ratios — demand / φ·capacity</p>
         </div>
         {needsAdjust && onUpdate && (
           <button onClick={handleAutoAdjust} disabled={adjusting}
@@ -139,9 +139,9 @@ export default function StructuralPanel({ result, onUpdate }: Props) {
       </div>
 
       {/* ── Summary cards ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-px bg-slate-100 border-b border-slate-100">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-px bg-gray-100 border-b border-gray-100">
         {[
-          { label: 'Total',         value: summary.total,         cls: 'text-slate-800' },
+          { label: 'Total',         value: summary.total,         cls: 'text-gray-800' },
           { label: 'OK  (≤80%)',    value: summary.ok,            cls: 'text-green-600' },
           { label: 'Warning (80–100%)',    value: summary.warning,       cls: 'text-amber-600' },
           { label: 'Overstressed (>100%)', value: summary.overstressed,  cls: 'text-red-600'   },
@@ -153,7 +153,7 @@ export default function StructuralPanel({ result, onUpdate }: Props) {
         ].map(c => (
           <div key={c.label} className="bg-white px-4 py-3">
             <div className={`text-2xl font-bold ${c.cls}`}>{c.value}</div>
-            <div className="text-xs text-slate-400 mt-0.5 leading-tight">{c.label}</div>
+            <div className="text-xs text-gray-400 mt-0.5 leading-tight">{c.label}</div>
           </div>
         ))}
       </div>
@@ -174,50 +174,50 @@ export default function StructuralPanel({ result, onUpdate }: Props) {
       )}
 
       {/* ── Filter toolbar ─────────────────────────────────────────── */}
-      <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+      <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
         {(['all', 'beam', 'column'] as const).map(f => (
           <button key={f} onClick={() => setFilter(f)}
             className={`px-3 py-1 rounded-lg text-xs font-medium capitalize transition-all ${
-              filter === f ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+              filter === f ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
             }`}>
             {f}
           </button>
         ))}
-        <span className="ml-auto text-xs text-slate-400">{displayed.length} members</span>
+        <span className="ml-auto text-xs text-gray-400">{displayed.length} members</span>
       </div>
 
       {/* ── Member table ───────────────────────────────────────────── */}
       <div className="overflow-auto max-h-[420px]">
         <table className="w-full text-sm">
-          <thead className="bg-slate-50 sticky top-0 shadow-sm">
+          <thead className="bg-gray-50 sticky top-0 shadow-sm">
             <tr>
-              <th className="text-left px-5 py-2.5 text-slate-500 font-medium text-xs">Type</th>
+              <th className="text-left px-5 py-2.5 text-gray-500 font-medium text-xs">Type</th>
               <SortTh label="Section"      col="section"     sort={sort} onSort={toggleSort} />
               <SortTh label="Span / Ht (m)" col="span"       sort={sort} onSort={toggleSort} />
               <SortTh label="Demand"        col="demand"      sort={sort} onSort={toggleSort} />
-              <th className="text-left px-4 py-2.5 text-slate-500 font-medium text-xs">Capacity</th>
+              <th className="text-left px-4 py-2.5 text-gray-500 font-medium text-xs">Capacity</th>
               <SortTh label="Utilization"   col="utilization" sort={sort} onSort={toggleSort} />
-              <th className="text-left px-4 py-2.5 text-slate-500 font-medium text-xs">Status</th>
+              <th className="text-left px-4 py-2.5 text-gray-500 font-medium text-xs">Status</th>
             </tr>
           </thead>
           <tbody>
             {displayed.map((m: SteelMember) => (
               <tr key={m.id}
-                className={`border-t border-slate-50 hover:bg-slate-50/80 transition-colors ${
+                className={`border-t border-gray-50 hover:bg-gray-50/80 transition-colors ${
                   m.status === 'overstressed' ? 'bg-red-50/30' : m.status === 'warning' ? 'bg-amber-50/30' : ''
                 }`}>
-                <td className="px-5 py-2.5 text-slate-500 capitalize text-xs">{m.member_type}</td>
-                <td className="px-4 py-2.5 text-right font-mono font-semibold text-slate-700">
+                <td className="px-5 py-2.5 text-gray-500 capitalize text-xs">{m.member_type}</td>
+                <td className="px-4 py-2.5 text-right font-mono font-semibold text-gray-700">
                   {m.section.designation}
                 </td>
-                <td className="px-4 py-2.5 text-right text-slate-600 tabular-nums">{m.span_m}</td>
-                <td className="px-4 py-2.5 text-right text-slate-600 tabular-nums">
+                <td className="px-4 py-2.5 text-right text-gray-600 tabular-nums">{m.span_m}</td>
+                <td className="px-4 py-2.5 text-right text-gray-600 tabular-nums">
                   {m.demand.toFixed(1)}{' '}
-                  <span className="text-slate-400">{m.member_type === 'beam' ? 'kN·m' : 'kN'}</span>
+                  <span className="text-gray-400">{m.member_type === 'beam' ? 'kN·m' : 'kN'}</span>
                 </td>
-                <td className="px-4 py-2.5 text-slate-600 tabular-nums">
+                <td className="px-4 py-2.5 text-gray-600 tabular-nums">
                   {m.capacity.toFixed(1)}{' '}
-                  <span className="text-slate-400">{m.member_type === 'beam' ? 'kN·m' : 'kN'}</span>
+                  <span className="text-gray-400">{m.member_type === 'beam' ? 'kN·m' : 'kN'}</span>
                 </td>
                 <td className="px-4 py-2.5"><UtilBar u={m.utilization} status={m.status} /></td>
                 <td className="px-4 py-2.5">
